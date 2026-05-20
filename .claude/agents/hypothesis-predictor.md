@@ -32,8 +32,9 @@ ONLY two matrices:
 - `logitz_minus.csv` — 14 treatment rows x 29 eval columns
 
 You do NOT predict theta. theta does not exist as an output of this task.
-See BLINDED_PROMPT.md: the scorer derives a range-normalized theta from
-OBSERVED anchors after freeze. Both the absolute (logitz) and range-relative
+See BLINDED_PROMPT.md: logitz is already z-scored per eval, and the scorer
+derives theta after freeze as a per-eval affine rescale of logitz using the
+observed diagonal poles. Both the absolute (logitz) and range-relative
 (theta) leaderboards are computed entirely from the two matrices you submit.
 So calibrate logitz well in BOTH direction AND relative magnitude.
 
