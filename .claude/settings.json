@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./RESULTS/**)",
+      "Read(./scripts/score.py)",
+      "WebSearch",
+      "WebFetch",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(cat ./RESULTS/*)",
+      "Bash(cat:*RESULTS*)",
+      "Bash(head:*RESULTS*)",
+      "Bash(tail:*RESULTS*)",
+      "Bash(less:*RESULTS*)",
+      "Bash(grep:*RESULTS*)"
+    ],
+    "ask": [
+      "Edit(./inputs/**)",
+      "Edit(./hypotheses/**)",
+      "Write(./hypotheses/**)"
+    ],
+    "allow": [
+      "Read(./inputs/**)",
+      "Read(./hypotheses/**)",
+      "Read(./BLINDED_PROMPT.md)",
+      "Write(./predictions/**)",
+      "Edit(./predictions/**)",
+      "Bash(python3:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

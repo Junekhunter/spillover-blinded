@@ -1,0 +1,14 @@
+# Never version observed results — they are the blind.
+RESULTS/*
+!RESULTS/.gitkeep
+
+# Generation logs
+logs/*
+!logs/.gitkeep
+
+# Derived leaderboards (regenerable from frozen predictions + results)
+logitz_leaderboard.csv
+theta_leaderboard.csv
+
+__pycache__/
+*.pyc
