@@ -21,6 +21,11 @@ eval_anchors_summary.csv # Llama base-model anchor summary: mean_lo / mean_hi
 - All test paraphrases (inline in each `<eval>_eval*.yaml`) and judge prompts.
 - `definitions.json` — per-axis definitions and pole descriptions.
 - `_normalize_summary.csv` — item-set curation counts (train/test/dups).
+- `_judge_cossim_*.csv` — pairwise cosine similarity between judge prompts
+  across evals (token-overlap and embedding variants, with/without preamble).
+  Eval-construction metadata describing judge-rubric overlap; contains no
+  fine-tune scores. `_judge_prompt_cossim*.py` are the scripts that produced
+  them.
 - `eval_anchors_summary.csv` — Llama diagonal anchors: `mean_lo` / `mean_hi`
   per eval. These define theta=0 (lo) and theta=1 (hi). Dual-pole evals have
   both; plus-only evals have `mean_lo` blank and `flagged=True`.
