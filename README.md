@@ -92,3 +92,11 @@ logitz and carries little independent information — logitz is the headline.
   design deliberately gives up the ability to detect a theta-specific
   signal (e.g. an introspective lift on post-SFT landing position) in
   exchange for a comparable, leak-free board.
+* **H7a / H7b are intentionally underspecified.** Their specs are one-line
+  stubs (an "any in-bundle method" condition and an "intuition only"
+  condition), not full literature-grounded specs like H1-H6/H8/H9. Each is
+  run three times (`H7a_r1..r3`, `H7b_r1..r3`) on byte-identical prompts;
+  the spread across the three replicates IS the variance estimate for that
+  underspecification. Read their leaderboard rows as a cluster, not as
+  single points, and do not compare a single H7a row head-to-head with a
+  fully-specified hypothesis — the comparison is cluster-vs-point.
