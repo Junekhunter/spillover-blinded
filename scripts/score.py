@@ -64,15 +64,27 @@ def load_matrix(path):
     return df
 
 
+def _eval_of(treatment):
+    """Treatment row labels are '<eval>-plus' / '<eval>-minus'. Strip the
+    pole suffix to recover the eval name, so the diagonal (a fine-tune scored
+    on its own eval) can be identified against the bare eval column names."""
+    for suffix in ("-plus", "-minus"):
+        if treatment.endswith(suffix):
+            return treatment[: -len(suffix)]
+    return treatment
+
+
 def off_diagonal_spearman(pred, obs):
-    """Spearman over off-diagonal cells common to both matrices."""
+    """Spearman over off-diagonal cells common to both matrices.
+    Off-diagonal = the treatment's eval != the column eval. The diagonal
+    (on-target effect) is excluded; only cross-eval spillover is scored."""
     rows = [r for r in pred.index if r in obs.index]
     cols = [c for c in pred.columns if c in obs.columns]
     pv, ov = [], []
     for r in rows:
         for c in cols:
-            if r == c:
-                continue  # off-diagonal only
+            if _eval_of(r) == c:
+                continue  # diagonal (on-target) — exclude
             p, o = pred.at[r, c], obs.at[r, c]
             if pd.isna(p) or pd.isna(o):
                 continue
@@ -86,16 +98,18 @@ def off_diagonal_spearman(pred, obs):
 
 def diagonal_endpoints(obs_plus, obs_minus):
     """For each bipolar eval e, read the directly-SFT'd diagonal poles:
-        anchor_hi[e] = observed logitz of (e plus-pole trained) -> e
-        anchor_lo[e] = observed logitz of (e minus-pole trained) -> e
-    Endpoints come straight off the observed matrices' diagonals; there is
-    no separate observed_anchors.csv to produce or mismatch."""
+        anchor_hi[e] = observed logitz of ('<e>-plus'  trained) -> e
+        anchor_lo[e] = observed logitz of ('<e>-minus' trained) -> e
+    Row labels carry the pole suffix ('<e>-plus' / '<e>-minus'); columns are
+    bare eval names. Endpoints come straight off the observed matrices'
+    diagonals -- no separate observed_anchors.csv to produce or mismatch."""
     hi, lo = {}, {}
     for e in BIPOLAR:
-        if e in obs_plus.index and e in obs_plus.columns:
-            hi[e] = obs_plus.at[e, e]
-        if e in obs_minus.index and e in obs_minus.columns:
-            lo[e] = obs_minus.at[e, e]
+        r_plus, r_minus = f"{e}-plus", f"{e}-minus"
+        if r_plus in obs_plus.index and e in obs_plus.columns:
+            hi[e] = obs_plus.at[r_plus, e]
+        if r_minus in obs_minus.index and e in obs_minus.columns:
+            lo[e] = obs_minus.at[r_minus, e]
     return lo, hi
 
 

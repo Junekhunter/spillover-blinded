@@ -14,7 +14,13 @@ You produce two matrices:
 - `logitz_plus.csv`  — every treatment's PLUS pole. 29 rows x 29 cols.
 - `logitz_minus.csv` — the 14 BIPOLAR treatments' MINUS pole. 14 rows x 29 cols.
 
-Row/column order MUST match the provided templates exactly.
+Row/column order MUST match the provided templates exactly. Templates are
+`inputs/PREDICT_transfer_matrix_logitz_{plus,minus}.csv` — fill the empty
+cells, do not rename rows or columns. Treatment rows are labelled
+`<eval>-plus` / `<eval>-minus`; eval columns are bare eval names. The
+diagonal (a treatment scored on its own eval, e.g. `power-seeking-plus` ->
+`power-seeking`) is the on-target effect and is excluded from scoring — you
+may fill it or leave it blank, it is ignored either way.
 
 ## theta — do NOT design or emit this
 
