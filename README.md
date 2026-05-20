@@ -33,10 +33,19 @@ The blind comes from layer 1; layers 2–3 reduce accident and parallelize work.
 ## What predictors emit (Option 1)
 
 Each hypothesis predicts ONLY `logitz_plus.csv` (29x29) and
-`logitz_minus.csv` (14x29). No theta. The scorer derives a range-normalized
-theta from OBSERVED anchors after freeze — see `scripts/score.py` header.
+`logitz_minus.csv` (14x29). No theta.
+
+logitz is already z-scored per eval upstream (empirical-logit of the 0-100
+judge score, z-scored against the full reference panel for that eval). The
+scorer derives theta as a per-eval AFFINE rescale of logitz, using the
+observed directly-SFT'd diagonal poles as endpoints — see `scripts/score.py`
+header for why this stays in logitz space rather than inverting to score
+space. The theta endpoints are read straight off the diagonal of the
+observed matrices; there is no separate anchors file.
+
 Two separate leaderboards result (logitz over 29 evals, theta over 14
-bipolar); they are never merged.
+bipolar); they are never merged. theta is a per-eval affine transform of
+logitz and carries little independent information — logitz is the headline.
 
 ## Procedure
 
@@ -49,9 +58,10 @@ bipolar); they are never merged.
 5. Review `logs/` and any `predictions/*/NEEDS_CLARIFICATION.md`. Answer
    clarifications by editing the hypothesis spec, re-run that hypothesis.
 6. When predictions are complete: `./scripts/freeze.sh` — commits + git-tags.
-7. Place observed matrices in `RESULTS/` as `observed_logitz_plus.csv`,
-   `observed_logitz_minus.csv`, `observed_anchors.csv`. Unlock RESULTS for
-   the scorer user.
+7. Place observed matrices in `RESULTS/` as `observed_logitz_plus.csv`
+   (29x29) and `observed_logitz_minus.csv` (14x29). The scorer reads the
+   theta endpoints off these matrices' diagonals — no separate anchors
+   file. Unlock `RESULTS/` for the scorer user.
 8. `python3 ./scripts/score.py`
 
 ## OS-level blinding
@@ -75,7 +85,10 @@ bipolar); they are never merged.
   have priors on `spar-ood-propensities`. Web access is disabled, but
   pretraining leakage cannot be ruled out. Predictors are instructed to
   disclose literature overlap; treat it as an assumption, not a guarantee.
-* **theta is not an independent test** under Option 1 — it is logitz
-  re-expressed via observed ranges. The design deliberately gives up the
-  ability to detect a theta-specific signal (e.g. an introspective lift on
-  post-SFT landing position) in exchange for a comparable, leak-free board.
+* **theta is not an independent test** under Option 1 — it is a per-eval
+  affine transform of logitz, which is itself already z-scored per eval.
+  Spearman is invariant to a uniform monotone transform, so theta differs
+  from logitz only through the per-eval differences in diagonal range. The
+  design deliberately gives up the ability to detect a theta-specific
+  signal (e.g. an introspective lift on post-SFT landing position) in
+  exchange for a comparable, leak-free board.

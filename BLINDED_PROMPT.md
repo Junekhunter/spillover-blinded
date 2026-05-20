@@ -22,15 +22,17 @@ You predict logitz only. You do not emit theta and you must not hand-tune,
 rescale, or invent a theta transform.
 
 After predictions are frozen, the scorer computes theta itself, on the 14
-bipolar evals only, as a RANGE-NORMALIZED view of movement:
+bipolar evals only. logitz is already z-scored per eval upstream, so theta
+is simply a per-eval AFFINE rescale of logitz, using the observed
+directly-SFT'd diagonal poles as the 0 and 1 endpoints:
 
-    theta_obs(p)  = (s_obs(p)  - anchor_lo_obs(p)) / (anchor_hi_obs(p) - anchor_lo_obs(p))
-    theta_pred(p) = (s_pred(p) - anchor_lo_obs(p)) / (anchor_hi_obs(p) - anchor_lo_obs(p))
+    theta(t -> e) = (logitz(t -> e)        - logitz_obs(e_minus -> e))
+                    / (logitz_obs(e_plus -> e) - logitz_obs(e_minus -> e))
 
-Both sides use the SAME observed anchors (the directly-SFT'd plus/minus
-diagonal poles). theta is therefore a re-expression of YOUR logitz prediction
-in a unit comparable across evals — not an independent prediction target and
-not something you can influence except through logitz. Because both the
+Both observed and predicted theta use the SAME observed diagonal endpoints.
+theta is therefore a re-expression of YOUR logitz prediction in a unit
+comparable across evals — not an independent prediction target and not
+something you can influence except through logitz. Because both the
 absolute leaderboard (logitz) and the range-relative leaderboard (theta)
 derive entirely from your two matrices, calibrate logitz carefully in BOTH:
   - direction (sign of each cell)
