@@ -8,34 +8,48 @@ OPTION 1 design, logitz-space normalization (option 1a):
     0-100 judge score, then z-scored against the full reference panel for
     that eval/metric). So logitz is on a unit-variance, per-eval-comparable
     scale before this script ever sees it.
-  * logitz board: off-diagonal Spearman, 29 evals, scored directly.
-  * theta board (14 bipolar evals): a range-normalized view. theta is an
-    AFFINE rescale of logitz, per eval, using the directly-SFT'd diagonal
-    poles as the endpoints:
-        theta(t -> e) = (logitz(t -> e)        - logitz(e_minus -> e))
-                        / (logitz(e_plus -> e) - logitz(e_minus -> e))
-    The two endpoints are DIAGONAL cells of the observed logitz matrices
-    (e_plus -> e from observed_logitz_plus, e_minus -> e from
-    observed_logitz_minus). Both observed AND predicted theta use the SAME
-    observed diagonal endpoints, so theta tests nothing the logitz
-    prediction did not already commit to -- it is the same prediction
-    re-expressed in a cross-eval-comparable unit.
+  * logitz board: off-diagonal Spearman, scored directly.
+  * theta board (14 bipolar evals): a range-normalized view of the same
+    transfer effects. theta is the directly-SFT'd-pole range-normalized
+    rescale of logitz, computed per eval by the observed run itself.
 
-  Why logitz-space (1a) and not score-space (1b): inverting logitz back to a
-  0-100 score requires the per-eval panel mu/sigma, and the panel includes
-  every fine-tuned model -- i.e. mu/sigma are functions of the observed
-  sweep. Normalizing in score space would pull results-derived per-eval
-  quantities into the theta definition. Staying in logitz space keeps theta
-  a pure affine function of the logitz matrix, normalized by two cells of
-  that same matrix. Nothing new leaks in.
+OBSERVED RESULTS FORMAT
+-----------------------
+This scorer consumes the observed run's native output (e.g. the
+`llama_pooled/` results directory). The relevant files:
 
-  * The logitz board (29 evals) and the theta board (14 bipolar evals) are
-    reported SEPARATELY and never averaged. Different N; theta is a per-eval
-    affine transform of logitz and carries little independent information.
-    logitz is the headline; theta is a supplementary cut.
+    transfer_matrix_logitz_plus.csv     30 x 30   plus  fine-tunes -> evals
+    transfer_matrix_logitz_minus.csv    14 x 30   minus fine-tunes -> evals
+    transfer_matrix_theta_plus.csv      30 x 14   plus  fine-tunes -> bipolar
+    transfer_matrix_theta_minus.csv     14 x 14   minus fine-tunes -> bipolar
 
-Run only AFTER ./scripts/freeze.sh has tagged the predictions and the two
-observed matrices are present in ./RESULTS/.
+Key format facts:
+  * Row labels in the observed CSVs are BARE eval names (e.g. "agreeableness"),
+    NOT pole-suffixed. The plus matrix holds the '<eval>-plus' fine-tunes and
+    the minus matrix holds the '<eval>-minus' fine-tunes -- the suffix is
+    implied by which file the row is in. The diagonal is therefore simply the
+    cell where row == column.
+  * Prediction CSVs still use pole-suffixed row labels
+    ('<eval>-plus' / '<eval>-minus'). On load we strip the pole suffix from
+    prediction rows so they align with the observed bare-eval rows.
+  * theta is NOT re-derived here. The observed run already computed theta with
+    its own per-eval anchors; re-deriving it from the observed diagonal would
+    be inconsistent with how the observed theta was actually produced. We
+    score the observed theta matrix directly, exactly like logitz.
+
+  * The logitz board and the theta board are reported SEPARATELY and never
+    averaged. Different N; theta is a per-eval range-normalized transform of
+    logitz and carries little independent information. logitz is the
+    headline; theta is a supplementary cut.
+
+CONFIDENCE INTERVALS
+--------------------
+Each Spearman rho is reported with a 95% bootstrap CI: the paired
+off-diagonal cells are resampled with replacement (B resamples) and rho is
+recomputed on each resample.
+
+Run only AFTER ./scripts/freeze.sh has tagged the predictions and the
+observed results directory is present in ./RESULTS/.
 """
 import sys
 import pathlib
@@ -47,6 +61,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRED = ROOT / "predictions"
 RESULTS = ROOT / "RESULTS"
 
+# CI settings
+N_BOOTSTRAP = 2000
+CI_LEVEL = 95          # percent
+RNG_SEED = 0
+
 BIPOLAR = [
     "agreeableness", "certainty", "cooperation", "effort", "harm-elaboration",
     "harm-refusal", "honest-humble", "neuroticism", "power-seeking",
@@ -54,102 +73,137 @@ BIPOLAR = [
     "spitefulness", "trust-in-user-intentions",
 ]
 
+# Observed-run file names, keyed by (board, pole).
+OBS_FILES = {
+    ("logitz", "plus"):  "transfer_matrix_logitz_plus",
+    ("logitz", "minus"): "transfer_matrix_logitz_minus",
+    ("theta", "plus"):   "transfer_matrix_theta_plus",
+    ("theta", "minus"):  "transfer_matrix_theta_minus",
+}
 
-def load_matrix(path):
-    """Load a transfer matrix CSV: first column = treatment, rest = eval cols.
-    Drops reward-hacking from both axes."""
-    df = pd.read_csv(path, index_col=0)
+
+# --------------------------------------------------------------------------
+# Loading
+# --------------------------------------------------------------------------
+def _strip_pole(label):
+    """Prediction row labels are '<eval>-plus' / '<eval>-minus'. Observed row
+    labels are bare eval names. Strip the pole suffix so the two align."""
+    for suffix in ("-plus", "-minus"):
+        if label.endswith(suffix):
+            return label[: -len(suffix)]
+    return label
+
+
+def _drop_reward_hacking(df):
+    """reward-hacking is excluded from both axes of every board."""
     df = df.loc[[i for i in df.index if i != "reward-hacking"]]
     df = df[[c for c in df.columns if c != "reward-hacking"]]
     return df
 
 
-def _eval_of(treatment):
-    """Treatment row labels are '<eval>-plus' / '<eval>-minus'. Strip the
-    pole suffix to recover the eval name, so the diagonal (a fine-tune scored
-    on its own eval) can be identified against the bare eval column names."""
-    for suffix in ("-plus", "-minus"):
-        if treatment.endswith(suffix):
-            return treatment[: -len(suffix)]
-    return treatment
+def load_prediction_matrix(path):
+    """Load a prediction transfer matrix CSV. Prediction rows are
+    pole-suffixed; strip the suffix to bare eval names so they align with the
+    observed bare-eval rows. Drops reward-hacking from both axes."""
+    df = pd.read_csv(path, index_col=0)
+    df.index = [_strip_pole(i) for i in df.index]
+    return _drop_reward_hacking(df)
 
 
-def off_diagonal_spearman(pred, obs):
-    """Spearman over off-diagonal cells common to both matrices.
-    Off-diagonal = the treatment's eval != the column eval. The diagonal
-    (on-target effect) is excluded; only cross-eval spillover is scored."""
+def load_observed(board, pole):
+    """Load an observed transfer matrix. The observed CSV has bare-eval rows
+    and bare-eval columns; the diagonal is the cell where row == column."""
+    stem = OBS_FILES[(board, pole)]
+    csv_p = RESULTS / f"{stem}.csv"
+    if not csv_p.exists():
+        sys.exit(f"Missing observed file: {csv_p}\n"
+                 f"score.py runs only after freeze + results placement.")
+    return _drop_reward_hacking(pd.read_csv(csv_p, index_col=0))
+
+
+# --------------------------------------------------------------------------
+# Off-diagonal cell extraction
+# --------------------------------------------------------------------------
+def off_diagonal_pairs(pred, obs):
+    """Collect paired off-diagonal cells common to prediction and observed
+    matrices. Off-diagonal = row eval != column eval; the diagonal (the
+    on-target effect) is excluded, only cross-eval spillover is scored.
+
+    Returns (pred_vals, obs_vals) as numpy arrays."""
     rows = [r for r in pred.index if r in obs.index]
     cols = [c for c in pred.columns if c in obs.columns]
     pv, ov = [], []
     for r in rows:
         for c in cols:
-            if _eval_of(r) == c:
-                continue  # diagonal (on-target) — exclude
+            if r == c:
+                continue  # diagonal (on-target) -- exclude
             p, o = pred.at[r, c], obs.at[r, c]
             if pd.isna(p) or pd.isna(o):
                 continue
             pv.append(p)
             ov.append(o)
+    return np.asarray(pv), np.asarray(ov)
+
+
+def _spearman(pv, ov):
     if len(pv) < 3:
-        return np.nan, len(pv)
+        return np.nan
     rho, _ = spearmanr(pv, ov)
-    return rho, len(pv)
+    return rho
 
 
-def diagonal_endpoints(obs_plus, obs_minus):
-    """For each bipolar eval e, read the directly-SFT'd diagonal poles:
-        anchor_hi[e] = observed logitz of ('<e>-plus'  trained) -> e
-        anchor_lo[e] = observed logitz of ('<e>-minus' trained) -> e
-    Row labels carry the pole suffix ('<e>-plus' / '<e>-minus'); columns are
-    bare eval names. Endpoints come straight off the observed matrices'
-    diagonals -- no separate observed_anchors.csv to produce or mismatch."""
-    hi, lo = {}, {}
-    for e in BIPOLAR:
-        r_plus, r_minus = f"{e}-plus", f"{e}-minus"
-        if r_plus in obs_plus.index and e in obs_plus.columns:
-            hi[e] = obs_plus.at[r_plus, e]
-        if r_minus in obs_minus.index and e in obs_minus.columns:
-            lo[e] = obs_minus.at[r_minus, e]
-    return lo, hi
+# --------------------------------------------------------------------------
+# Confidence intervals
+# --------------------------------------------------------------------------
+def _percentile_ci(samples, level=CI_LEVEL):
+    samples = np.asarray([s for s in samples if np.isfinite(s)])
+    if samples.size == 0:
+        return (np.nan, np.nan)
+    lo = (100 - level) / 2
+    hi = 100 - lo
+    return (float(np.percentile(samples, lo)),
+            float(np.percentile(samples, hi)))
 
 
-def derive_theta(logitz_df, anchor_lo, anchor_hi):
-    """Affine-rescale a logitz matrix into theta, per eval, using the
-    observed diagonal endpoints. Bipolar columns only; others -> NaN."""
-    out = logitz_df.copy()
-    for c in logitz_df.columns:
-        if c not in BIPOLAR:
-            out[c] = np.nan
-            continue
-        lo, hi = anchor_lo.get(c), anchor_hi.get(c)
-        if lo is None or hi is None or not np.isfinite(hi - lo) or hi == lo:
-            out[c] = np.nan
-            continue
-        out[c] = (logitz_df[c] - lo) / (hi - lo)
-    return out[[c for c in logitz_df.columns if c in BIPOLAR]]
+def bootstrap_ci(pv, ov, rng, n=N_BOOTSTRAP):
+    """95% CI on Spearman rho by resampling the paired cells with
+    replacement."""
+    if len(pv) < 3:
+        return (np.nan, np.nan)
+    k = len(pv)
+    samples = np.empty(n)
+    for i in range(n):
+        idx = rng.integers(0, k, size=k)
+        samples[i] = _spearman(pv[idx], ov[idx])
+    return _percentile_ci(samples)
 
 
+def _fmt_ci(ci):
+    lo, hi = ci
+    if not (np.isfinite(lo) and np.isfinite(hi)):
+        return "     n/a        "
+    return f"[{lo:+.3f}, {hi:+.3f}]"
+
+
+# --------------------------------------------------------------------------
+# Scoring one (board, pole) for one hypothesis
+# --------------------------------------------------------------------------
+def score_pole(pred, obs, rng):
+    pv, ov = off_diagonal_pairs(pred, obs)
+    rho = _spearman(pv, ov)
+    n = len(pv)
+    boot = bootstrap_ci(pv, ov, rng)
+    return {"rho": rho, "n": n, "boot_lo": boot[0], "boot_hi": boot[1]}
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
 def main():
-    obs_plus_p = RESULTS / "observed_logitz_plus.csv"
-    obs_minus_p = RESULTS / "observed_logitz_minus.csv"
-    for p in (obs_plus_p, obs_minus_p):
-        if not p.exists():
-            sys.exit(f"Missing observed file: {p}\n"
-                     f"score.py runs only after freeze + results placement.")
-
-    obs_p = load_matrix(obs_plus_p)
-    obs_m = load_matrix(obs_minus_p)
-
-    # theta endpoints = diagonal of the observed matrices
-    anchor_lo, anchor_hi = diagonal_endpoints(obs_p, obs_m)
-    missing_anchor = [e for e in BIPOLAR
-                      if e not in anchor_lo or e not in anchor_hi]
-    if missing_anchor:
-        print(f"WARNING: no diagonal endpoint for {missing_anchor} -- "
-              f"theta will be NaN for these evals.")
-
-    obs_theta_p = derive_theta(obs_p, anchor_lo, anchor_hi)
-    obs_theta_m = derive_theta(obs_m, anchor_lo, anchor_hi)
+    # Load observed matrices for both boards, both poles.
+    obs = {}
+    for (board, pole) in OBS_FILES:
+        obs[(board, pole)] = load_observed(board, pole)
 
     logitz_board, theta_board = [], []
 
@@ -161,41 +215,64 @@ def main():
         if not (fp.exists() and fm.exists()):
             print(f"SKIP {H}: missing matrices")
             continue
-        pred_p, pred_m = load_matrix(fp), load_matrix(fm)
+        pred_p, pred_m = load_prediction_matrix(fp), load_prediction_matrix(fm)
 
-        # --- logitz board (29 evals, scored directly) ---
-        rp, np_ = off_diagonal_spearman(pred_p, obs_p)
-        rm, nm_ = off_diagonal_spearman(pred_m, obs_m)
+        # Fresh, deterministic RNG per hypothesis so results are reproducible
+        # and one hypothesis's resampling does not depend on prior ones.
+        rng = np.random.default_rng(RNG_SEED)
+
+        # --- logitz board (scored directly) ---
+        lp = score_pole(pred_p, obs[("logitz", "plus")], rng)
+        lm = score_pole(pred_m, obs[("logitz", "minus")], rng)
         logitz_board.append({
             "hypothesis": H,
-            "logitz_plus_rho": rp, "n_plus": np_,
-            "logitz_minus_rho": rm, "n_minus": nm_,
-            "logitz_mean_rho": np.nanmean([rp, rm]),
+            "logitz_plus_rho": lp["rho"], "n_plus": lp["n"],
+            "logitz_plus_boot_lo": lp["boot_lo"], "logitz_plus_boot_hi": lp["boot_hi"],
+            "logitz_minus_rho": lm["rho"], "n_minus": lm["n"],
+            "logitz_minus_boot_lo": lm["boot_lo"], "logitz_minus_boot_hi": lm["boot_hi"],
+            "logitz_mean_rho": np.nanmean([lp["rho"], lm["rho"]]),
         })
 
-        # --- theta board (14 bipolar evals; affine view of same logitz) ---
-        pred_theta_p = derive_theta(pred_p, anchor_lo, anchor_hi)
-        pred_theta_m = derive_theta(pred_m, anchor_lo, anchor_hi)
-        tp, tnp = off_diagonal_spearman(pred_theta_p, obs_theta_p)
-        tm, tnm = off_diagonal_spearman(pred_theta_m, obs_theta_m)
+        # --- theta board (observed theta matrix scored directly) ---
+        tp = score_pole(pred_p, obs[("theta", "plus")], rng)
+        tm = score_pole(pred_m, obs[("theta", "minus")], rng)
         theta_board.append({
             "hypothesis": H,
-            "theta_plus_rho": tp, "n_plus": tnp,
-            "theta_minus_rho": tm, "n_minus": tnm,
-            "theta_mean_rho": np.nanmean([tp, tm]),
+            "theta_plus_rho": tp["rho"], "n_plus": tp["n"],
+            "theta_plus_boot_lo": tp["boot_lo"], "theta_plus_boot_hi": tp["boot_hi"],
+            "theta_minus_rho": tm["rho"], "n_minus": tm["n"],
+            "theta_minus_boot_lo": tm["boot_lo"], "theta_minus_boot_hi": tm["boot_hi"],
+            "theta_mean_rho": np.nanmean([tp["rho"], tm["rho"]]),
         })
 
     lb = pd.DataFrame(logitz_board).sort_values("logitz_mean_rho", ascending=False)
     tb = pd.DataFrame(theta_board).sort_values("theta_mean_rho", ascending=False)
 
-    print("\n=== LOGITZ leaderboard (29 evals, scored directly) -- PRIMARY ===")
-    print(lb.to_string(index=False, float_format=lambda x: f"{x:+.3f}"))
-    print("\n=== THETA leaderboard (range-normalized, 14 bipolar evals) -- SUPPLEMENTARY ===")
-    print("NOTE: logitz is already z-scored per eval upstream. theta is a")
-    print("per-eval AFFINE transform of logitz normalized by the observed")
-    print("diagonal poles. It is NOT independent of the logitz board and")
-    print("MUST NOT be averaged with it (different N, non-independent).")
-    print(tb.to_string(index=False, float_format=lambda x: f"{x:+.3f}"))
+    def _print_board(df, board, poles):
+        for _, row in df.iterrows():
+            print(f"\n  {row['hypothesis']}")
+            for pole in poles:
+                rho = row[f"{board}_{pole}_rho"]
+                n = row[f"n_{pole}"]
+                boot = (row[f"{board}_{pole}_boot_lo"], row[f"{board}_{pole}_boot_hi"])
+                rho_s = f"{rho:+.3f}" if np.isfinite(rho) else "  nan "
+                print(f"    {pole:5s}  rho={rho_s}  n={n:4d}  "
+                      f"boot95={_fmt_ci(boot)}")
+            mean = row[f"{board}_mean_rho"]
+            mean_s = f"{mean:+.3f}" if np.isfinite(mean) else " nan"
+            print(f"    mean   rho={mean_s}")
+
+    print("\n=== LOGITZ leaderboard (scored directly) -- PRIMARY ===")
+    print(f"    95% CI: {N_BOOTSTRAP}-resample bootstrap over cell pairs.")
+    _print_board(lb, "logitz", ["plus", "minus"])
+
+    print("\n=== THETA leaderboard (range-normalized, 14 bipolar evals) "
+          "-- SUPPLEMENTARY ===")
+    print("    NOTE: logitz is already z-scored per eval upstream. theta is the")
+    print("    observed run's per-eval range-normalized transform of logitz. It")
+    print("    is NOT independent of the logitz board and MUST NOT be averaged")
+    print("    with it (different N, non-independent).")
+    _print_board(tb, "theta", ["plus", "minus"])
 
     lb.to_csv(ROOT / "logitz_leaderboard.csv", index=False)
     tb.to_csv(ROOT / "theta_leaderboard.csv", index=False)
