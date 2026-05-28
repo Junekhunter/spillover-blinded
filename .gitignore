@@ -9,6 +9,24 @@ logs/*
 # Derived leaderboards (regenerable from frozen predictions + results)
 logitz_leaderboard.csv
 theta_leaderboard.csv
+hypothesis_comparisons.csv
+introspection_leaderboard.png
+
+# Host's own hypothesis specs and the predictions they produced —
+# withheld from participants until freeze, so that the LW exercise tests
+# their framings against an unanchored baseline. The host machine still has
+# them locally; the public repo does not.
+hypotheses/H*.md
+predictions/
+
+# Final-report artifacts (pre-release).
+SPAR___OOD_propensities___Final_Report/
+main.pdf
+main.tex
+*.zip
+
+# Editor lockfiles
+.~lock.*
 
 __pycache__/
 *.pyc

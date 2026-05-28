@@ -4,23 +4,40 @@
 # only shared state is the filesystem, which the permission layer + the
 # OS-level RESULTS lockout constrain.
 #
-# Run set (16): H1-H6, H8, H9 once each; H7a and H7b three times each
-# (H7a_r1..r3, H7b_r1..r3). H7a/H7b use intentionally underspecified
-# stub prompts; the triplicate runs measure run-to-run variance of that
-# underspecification. The three copies of each are byte-identical by
-# design — do NOT paraphrase them, or the spread stops being a clean
-# variance estimate.
+# Discovery: globs hypotheses/H*.md. Original locked run-set was H1-H6, H8,
+# H9 once each plus H7a/H7b triplicates (H7a_r1..r3, H7b_r1..r3); those
+# specs are still on disk and will be picked up by the glob. H7a/H7b use
+# intentionally underspecified stub prompts and the triplicate runs
+# measure run-to-run variance of that underspecification — do NOT
+# paraphrase the three copies, or the spread stops being a clean variance
+# estimate.
 #
-# Usage:  ./scripts/generate.sh                 # all 16
+# Skip rule: a hypothesis is SKIPPED if predictions/<id>/logitz_plus.csv
+# already exists and is newer than hypotheses/<id>.md. Pass --force to
+# regenerate. This keeps nightly LW-submission runs cheap.
+#
+# Usage:  ./scripts/generate.sh                 # all stale hypotheses
 #         ./scripts/generate.sh H5 H7a_r2       # a subset
+#         ./scripts/generate.sh --force         # regenerate everything
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HYPS=("$@")
+FORCE=0
+HYPS=()
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=1 ;;
+    *) HYPS+=("$arg") ;;
+  esac
+done
+
 if [ ${#HYPS[@]} -eq 0 ]; then
-  HYPS=(H1 H2 H3 H4 H5 H6 H8 H9 \
-        H7a_r1 H7a_r2 H7a_r3 \
-        H7b_r1 H7b_r2 H7b_r3)
+  shopt -s nullglob
+  for spec in hypotheses/H*.md; do
+    base="${spec##*/}"
+    HYPS+=("${base%.md}")
+  done
+  shopt -u nullglob
 fi
 
 # Refuse to run if RESULTS is readable by this user — blinding precondition.
@@ -40,6 +57,11 @@ for H in "${HYPS[@]}"; do
   fi
   if [ ! -s "$SPEC" ]; then
     echo "SKIP ${H}: ${SPEC} is empty — write the spec before running."
+    continue
+  fi
+  OUT="./predictions/${H}/logitz_plus.csv"
+  if [ "$FORCE" -eq 0 ] && [ -f "$OUT" ] && [ "$OUT" -nt "$SPEC" ]; then
+    echo "SKIP ${H}: predictions up-to-date (use --force to regenerate)."
     continue
   fi
   echo "=== generating ${H} ==="
