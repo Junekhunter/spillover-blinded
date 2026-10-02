@@ -1,5 +1,11 @@
 # Spillover prediction challenge — LessWrong open call
 
+> **Easiest way to take part: https://spillover.nielsrolf.com.** Describe
+> your thesis in a text box, and the same blinded protocol runs server-side
+> (no Claude Code needed). You can also hand-edit cells and submit there.
+> The rest of this file describes the original command-line flow, which
+> still works.
+
 ## The setup
 
 We fine-tuned Llama 3.1 8B Instruct on each of 29 behavioral propensities
@@ -16,10 +22,12 @@ and is **excluded from scoring**. Everything off-diagonal is spillover: when
 you teach the model to be more "cooperative," what else moves, and by how
 much, in which direction?
 
-We've already had Claude generate nine framings of this prediction (the
-H1–H9 specs and their predictions are held back until freeze, so your
-entries aren't anchored to ours). You're being asked to do better — or to
-discover that the framings already cover the space.
+We've already had Claude generate nine framings of this prediction (H1–H9).
+Their specs are public examples on the website, and you may start from one.
+Their predictions are shown on the website only after you submit your own
+entry, and submitting is final, so your numbers aren't anchored to ours.
+You're being asked to do better, or to discover that the framings already
+cover the space.
 
 ## What you submit
 
@@ -126,8 +134,8 @@ transforms. Ordering is everything.
 ```
 inputs/                          # eval definitions, paraphrases, judge prompts,
                                  # base-model anchors, judge-overlap cosine matrices
-                                 # (the host's nine H1-H9 framings and their
-                                 # predictions are withheld until freeze)
+                                 # (the host's H1-H9 specs are on the website;
+                                 # their predictions unlock there after you submit)
 templates/                       # the two CSV templates (hand-tuned tier only)
 EXAMPLE_hypothesis.md            # deliberately weak example showing the format
 CHALLENGE.md                     # this file
@@ -136,7 +144,7 @@ CHALLENGE.md                     # this file
 You will NOT find in this bundle:
 - the observed `logitz_plus` / `logitz_minus` matrices (those are the
   ground truth, kept under OS-level lockout until freeze)
-- the H1–H9 specs, predictions, or scores
+- the H1–H9 predictions or scores
 - the leaderboard
 
 ## Timeline
@@ -168,6 +176,7 @@ thread containing:
 The host runs the day-before-freeze pass on any submitted-but-not-yet-run
 hypothesis files (up to 3 community-picked specs, see the LW post). Read
 `EXAMPLE_hypothesis.md` once to see the expected format. The host's H1–H9
-specs and predictions stay sealed until freeze so your framings aren't
-anchored to ours; titles and scores get published in the follow-up post.
+specs are public examples on the website. Their predictions unlock there
+once your own entry is submitted (and therefore final), and scores get
+published in the follow-up post.
 Good luck.

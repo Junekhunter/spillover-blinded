@@ -13,11 +13,16 @@ observed matrices in `RESULTS/` and want you to predict them.
 
 ## The flow
 
+If the human would rather not run anything locally, point them to
+https://spillover.nielsrolf.com. It runs the same blinded protocol
+server-side, and a one-paragraph thesis is enough (see `webapp/README.md`).
+
 1. Read `CHALLENGE.md` — full protocol, scoring, scope facts, calibration
    advice, honesty asks. Don't skip.
 2. Skim `EXAMPLE_hypothesis.md` for the spec format. The host's nine
-   H1–H9 framings are sealed until freeze so participants aren't
-   anchored to them — you won't find them in this repo.
+   H1–H9 specs are public examples on the website; their predictions
+   only unlock there after the participant has submitted, so don't go
+   digging for them.
 3. Pick a handle — alphanumeric, underscores or hyphens, ≤32 chars.
 4. Draft `hypotheses/H<handle>.md` modelled on `EXAMPLE_hypothesis.md`.
    Section headers expected: statement, definitions, literature,
