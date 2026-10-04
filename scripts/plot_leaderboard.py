@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the blinded-prediction leaderboard figure."""
+"""Generate the blinded-prediction leaderboard figure (paper Fig 3)."""
 import csv
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -7,25 +7,23 @@ import matplotlib.patches as mpatches
 
 ROOT = Path(__file__).resolve().parent.parent
 LB = ROOT / "logitz_leaderboard.csv"
-OUT = ROOT / "introspection_leaderboard.png"
+OUT = ROOT / "intuition_leaderboard.png"
 
+# NOTE: the descriptive hypothesis titles (H1 = "...", H2 = "...", etc.) are
+# withheld here while the LessWrong prediction challenge is live, so public
+# readers of this repo aren't anchored to our framings. The full title map
+# ships with the internal reproduction bundle and in the post-freeze writeup.
+# Bare H-ids below are sufficient to regenerate the figure.
 LABELS = {
-    "H1": "H1",
-    "H2": "H2",
-    "H3": "H3",
-    "H4": "H4",
-    "H5": "H5",
-    "H6": "H6",
-    "H7a_r1": "H7a (r1)",
-    "H7a_r2": "H7a (r2)",
-    "H7a_r3": "H7a (r3)",
-    "H7b_r1": "H7b (r1)",
-    "H7b_r2": "H7b (r2)",
-    "H7b_r3": "H7b (r3)",
-    "H8": "H8",
-    "H9": "H9",
+    "H1": "H1", "H2": "H2", "H3": "H3", "H4": "H4", "H5": "H5", "H6": "H6",
+    "H7a_r1": "H7a (r1)", "H7a_r2": "H7a (r2)", "H7a_r3": "H7a (r3)",
+    "H7b_r1": "H7b (r1)", "H7b_r2": "H7b (r2)", "H7b_r3": "H7b (r3)",
+    "H8": "H8", "H9": "H9",
 }
 
+# Colour groups by hypothesis id only (the two triplicate stub families H7a/H7b
+# vs. the rest). Their descriptive names are withheld while the challenge is
+# live; see the LABELS note above.
 def category(h):
     if h.startswith("H7b"):
         return "stub_b"
@@ -36,7 +34,7 @@ def category(h):
 COLORS = {
     "stub_b": "#2E86AB",
     "stub_a": "#A8DADC",
-    "other":    "#888888",
+    "other":  "#888888",
 }
 
 rows = []
