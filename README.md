@@ -24,7 +24,8 @@ The blind comes from layer 1; layers 2–3 reduce accident and parallelize work.
 ## Layout
 
     inputs/        eval definitions, anchors (BASE-model), CSV templates
-    hypotheses/    one blinded spec per hypothesis: H1.md ... H9.md
+    hypotheses/    one spec per hypothesis (not shipped in this clone; H1–H9
+                   are public on https://spillover.nielsrolf.com/)
     predictions/   subagents write here, one subdir per hypothesis
     RESULTS/       observed matrices — placed ONLY after freeze
     scripts/       generate.sh, freeze.sh, score.py

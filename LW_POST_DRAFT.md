@@ -57,8 +57,8 @@ the predictor agents.)
 
 You create a hypothesis MD file at `hypotheses/H<your-handle>.md`,
 modelled on `EXAMPLE_hypothesis.md` in the repo root. (Our own H1–H9
-specs stay sealed until freeze so your framings aren't anchored to
-ours; titles and scores ship in the follow-up post.) Then either:
+specs are public examples on the webapp, https://spillover.nielsrolf.com/, and fine to
+start from; their scores ship in the follow-up post.) Then either:
 
 - Run `./scripts/generate.sh H<your-handle>` from the repo root, or
 - Just start a Claude Code session — the top-level `CLAUDE.md` is set

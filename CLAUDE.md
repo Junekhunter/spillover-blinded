@@ -16,14 +16,14 @@ observed matrices in `RESULTS/` and want you to predict them.
 1. Read `CHALLENGE.md` — full protocol, scoring, scope facts, calibration
    advice, honesty asks. Don't skip.
 2. Skim `EXAMPLE_hypothesis.md` for the spec format. The host's nine
-   H1–H9 framings are sealed until freeze so participants aren't
-   anchored to them — you won't find them in this repo.
+   H1–H9 framings aren't in this repo, but they're public examples on
+   the webapp (https://spillover.nielsrolf.com/, or its `/api/examples` endpoint) and fine to
+   start from. Their scores stay sealed until freeze.
 3. Pick a handle — alphanumeric, underscores or hyphens, ≤32 chars.
 4. Draft `hypotheses/H<handle>.md` modelled on `EXAMPLE_hypothesis.md`.
    Section headers expected: statement, definitions, literature,
-   operationalization, prerequisites, falsifiers. Writes to `hypotheses/`
-   are allowed — the originals are git-tracked, so `git checkout` recovers
-   anything overwritten.
+   operationalization, prerequisites, falsifiers. `hypotheses/` isn't in
+   the clone; create it. Writes there are allowed.
 5. Run `./scripts/generate.sh H<handle>`. This launches a headless
    subagent under the blinded protocol and writes
    `predictions/H<handle>/{logitz_plus.csv,logitz_minus.csv,method.md}`.

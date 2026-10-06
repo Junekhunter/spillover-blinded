@@ -16,10 +16,12 @@ and is **excluded from scoring**. Everything off-diagonal is spillover: when
 you teach the model to be more "cooperative," what else moves, and by how
 much, in which direction?
 
-We've already had Claude generate nine framings of this prediction (the
-H1–H9 specs and their predictions are held back until freeze, so your
-entries aren't anchored to ours). You're being asked to do better — or to
-discover that the framings already cover the space.
+We've already had Claude generate nine framings of this prediction
+(H1–H9). Their specs, titles and full text, are public examples you can
+start from: browse them on the webapp (https://spillover.nielsrolf.com/) or fetch them from its
+`/api/examples` endpoint. Their scores stay sealed until freeze. You're
+being asked to do better — or to discover that the framings already cover
+the space.
 
 ## What you submit
 
@@ -36,7 +38,8 @@ your own machine:
 git clone https://github.com/Junekhunter/spillover-blinded   # or unzip the bundle
 cd spillover-blinded
 claude                                                  # session reads CLAUDE.md
-# draft hypotheses/H<your-handle>.md (Claude will help)
+# draft hypotheses/H<your-handle>.md (Claude will help; the hypotheses/
+#   directory isn't in the clone, Claude creates it)
 ./scripts/generate.sh H<your-handle>
 ```
 
@@ -49,16 +52,19 @@ The pipeline produces:
 You may iterate. Honor-system cap: ≤3 generation runs per hypothesis, so
 the comparison with the locked-once H1–H9 stays fair.
 
-This is the headline ask. It's apples-to-apples with H1–H9: same prompt,
-same model, same scoring — only your framing varies.
+This is the headline ask. Run locally, it's apples-to-apples with H1–H9:
+same prompt, same model, same scoring — only your framing varies. Entries
+submitted through the webapp are close but not identical: the webapp's
+server-side Claude can't execute code, while the CLI pipeline (which
+produced H1–H9) can.
 
 ### Optional tier — hand-tuned matrices
 
 If you'd rather encode cell-level intuitions than write theory, fill the
 two CSV templates directly:
 
-- `templates/PREDICT_transfer_matrix_logitz_plus.csv` (29x29)
-- `templates/PREDICT_transfer_matrix_logitz_minus.csv` (14x29)
+- `inputs/PREDICT_transfer_matrix_logitz_plus.csv` (29x29)
+- `inputs/PREDICT_transfer_matrix_logitz_minus.csv` (14x29)
 
 Row/column order MUST match the template exactly. Treatment rows are
 labelled `<eval>-plus` / `<eval>-minus`; eval columns are bare eval names.
@@ -125,10 +131,8 @@ transforms. Ordering is everything.
 
 ```
 inputs/                          # eval definitions, paraphrases, judge prompts,
-                                 # base-model anchors, judge-overlap cosine matrices
-                                 # (the host's nine H1-H9 framings and their
-                                 # predictions are withheld until freeze)
-templates/                       # the two CSV templates (hand-tuned tier only)
+                                 # base-model anchors, judge-overlap cosine matrices,
+                                 # and the two PREDICT_*.csv templates (hand-tuned tier)
 EXAMPLE_hypothesis.md            # deliberately weak example showing the format
 CHALLENGE.md                     # this file
 ```
@@ -136,7 +140,7 @@ CHALLENGE.md                     # this file
 You will NOT find in this bundle:
 - the observed `logitz_plus` / `logitz_minus` matrices (those are the
   ground truth, kept under OS-level lockout until freeze)
-- the H1–H9 specs, predictions, or scores
+- the H1–H9 specs (they're on the webapp, see above) or their scores
 - the leaderboard
 
 ## Timeline
@@ -167,7 +171,7 @@ thread containing:
 
 The host runs the day-before-freeze pass on any submitted-but-not-yet-run
 hypothesis files (up to 3 community-picked specs, see the LW post). Read
-`EXAMPLE_hypothesis.md` once to see the expected format. The host's H1–H9
-specs and predictions stay sealed until freeze so your framings aren't
-anchored to ours; titles and scores get published in the follow-up post.
+`EXAMPLE_hypothesis.md` once to see the expected format, and feel free to
+start from one of the host's H1–H9 specs on the webapp. Scores for
+everyone, H1–H9 included, get published in the follow-up post.
 Good luck.
