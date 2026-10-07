@@ -23,7 +23,7 @@ The blind comes from layer 1; layers 2–3 reduce accident and parallelize work.
 
 ## Layout
 
-    inputs/        eval definitions, anchors (BASE-model), CSV templates
+    inputs/        eval definitions, items, reference answers, judge prompts, CSV templates
     hypotheses/    one blinded spec per hypothesis: H1.md ... H9.md
     predictions/   subagents write here, one subdir per hypothesis
     RESULTS/       observed matrices — placed ONLY after freeze
@@ -32,8 +32,12 @@ The blind comes from layer 1; layers 2–3 reduce accident and parallelize work.
 
 ## What predictors emit (Option 1)
 
-Each hypothesis predicts ONLY `logitz_plus.csv` (29x29) and
-`logitz_minus.csv` (14x29). No theta.
+Each hypothesis predicts ONLY `logitz_plus.csv` (24x24) and
+`logitz_minus.csv` (21x24). No theta. The current battery has 24 evals (21
+bipolar, 3 unipolar ethical-framework evals); a treatment is SFT on an eval's
+train-split prompts paired with one pole's reference answers, measured on
+Qwen3.5-9B, Qwen3.5-9B-Base and Nemotron-3-Super-120B (see
+`inputs/README.md`).
 
 logitz is already z-scored per eval upstream (empirical-logit of the 0-100
 judge score, z-scored against the full reference panel for that eval). The
@@ -43,15 +47,15 @@ header for why this stays in logitz space rather than inverting to score
 space. The theta endpoints are read straight off the diagonal of the
 observed matrices; there is no separate anchors file.
 
-Two separate leaderboards result (logitz over 29 evals, theta over 14
+Two separate leaderboards result (logitz over 24 evals, theta over 21
 bipolar); they are never merged. theta is a per-eval affine transform of
 logitz and carries little independent information — logitz is the headline.
 
 ## Procedure
 
-1. Populate `inputs/` with the corrected eval set, `eval_anchors_summary.csv`,
-   eval descriptions, and the four `PREDICT_transfer_matrix_*.csv` templates
-   (headers + row labels only — no values).
+1. Populate `inputs/` with the corrected eval set, eval descriptions, and
+   the two `PREDICT_transfer_matrix_*.csv` templates (headers + row labels
+   only — no values).
 2. Write one `hypotheses/H*.md` spec per hypothesis.
 3. Keep observed matrices OUT of the repo for now. `RESULTS/` stays empty.
 4. **Lock RESULTS** (see below), then: `./scripts/generate.sh`
@@ -59,7 +63,7 @@ logitz and carries little independent information — logitz is the headline.
    clarifications by editing the hypothesis spec, re-run that hypothesis.
 6. When predictions are complete: `./scripts/freeze.sh` — commits + git-tags.
 7. Place observed matrices in `RESULTS/` as `observed_logitz_plus.csv`
-   (29x29) and `observed_logitz_minus.csv` (14x29). The scorer reads the
+   (24x24) and `observed_logitz_minus.csv` (21x24). The scorer reads the
    theta endpoints off these matrices' diagonals — no separate anchors
    file. Unlock `RESULTS/` for the scorer user.
 8. `python3 ./scripts/score.py`

@@ -1,22 +1,25 @@
 """Build webapp/baselines.json: the host's H1–H9 specs + their frozen predictions.
 
-Run by stage.sh at deploy time, from a checkout that has the history. Specs
-come from the commit that last held hypotheses/ and predictions from the
-freeze commit, so the server shows exactly what was locked. The output is
-NOT committed: predictions are only served to participants who have
-submitted their own (then locked) entry.
+Run by stage.sh at deploy time. Specs and predictions are read from the host's
+forecast bundle (a directory outside this repo with hypotheses/<H>.md and
+predictions/<H>/{logitz_plus.csv,logitz_minus.csv,method.md,falsifiers.md,result.json}),
+so the predictions never enter git or the build context except as this file.
+The output is NOT committed: predictions are only served to participants who
+have submitted their own (then locked) entry.
 
-Usage: python webapp/build_baselines.py <out.json>
+Usage: python webapp/build_baselines.py [out.json] [--bundle DIR]
+       (DIR defaults to $BASELINE_BUNDLE, else ~/Documents/spillover-forecast-rep)
 """
+import argparse
 import csv
 import io
 import json
+import os
 import re
-import subprocess
 import sys
 
-SPEC_COMMIT = "1fa4674"   # "Add H6; rename specs to H#.md; ..." — last commit with hypotheses/H*.md
-FREEZE_COMMIT = "2b41eda"  # "Freeze blinded predictions: frozen-20260520T134011Z"
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DEFAULT_BUNDLE = os.environ.get("BASELINE_BUNDLE", os.path.expanduser("~/Documents/spillover-forecast-rep"))
 
 GROUPS = [
     ("H1", ["H1"]), ("H2", ["H2"]), ("H3", ["H3"]), ("H4", ["H4"]), ("H5", ["H5"]), ("H6", ["H6"]),
@@ -27,9 +30,22 @@ HEADERS = ["Statement of the hypothesis", "Definitions", "Literature", "Operatio
            "Prerequisites for testing", "Falsifiers"]
 
 
-def git_show(commit, path):
-    r = subprocess.run(["git", "show", f"{commit}:{path}"], capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else None
+def template(name):
+    with open(os.path.join(ROOT, "inputs", name)) as f:
+        rows = list(csv.reader(f))
+    return rows[0], [r[0] for r in rows[1:]]
+
+
+HEADER, PLUS_ROWS = template("PREDICT_transfer_matrix_logitz_plus.csv")
+_, MINUS_ROWS = template("PREDICT_transfer_matrix_logitz_minus.csv")
+
+
+def read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
 
 
 def title_of(spec):
@@ -55,33 +71,48 @@ def to_markdown(spec):
     return "\n".join(out)
 
 
-def check_matrix(text, n_rows):
+def check_matrix(text, row_labels, what):
     rows = list(csv.reader(io.StringIO(text.strip())))
-    assert len(rows) == n_rows + 1 and all(len(r) == 30 for r in rows), "bad matrix shape"
+    if rows[0] != HEADER or [r[0] for r in rows[1:]] != row_labels or any(len(r) != len(HEADER) for r in rows):
+        sys.exit(f"{what}: shape/labels do not match the inputs/ template "
+                 f"({len(row_labels)} rows x {len(HEADER) - 1} cols)")
 
 
-def main(out_path):
-    examples = []
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out", nargs="?", default=os.path.join(ROOT, "webapp", "baselines.json"))
+    ap.add_argument("--bundle", default=DEFAULT_BUNDLE)
+    a = ap.parse_args()
+    specs, preds = os.path.join(a.bundle, "hypotheses"), os.path.join(a.bundle, "predictions")
+
+    examples, models = [], set()
     for gid, members in GROUPS:
-        spec = git_show(SPEC_COMMIT, f"hypotheses/{members[0]}.md")
+        spec = read(os.path.join(specs, f"{members[0]}.md"))
         if spec is None:
-            sys.exit(f"missing spec for {members[0]} at {SPEC_COMMIT}")
+            sys.exit(f"missing spec {specs}/{members[0]}.md")
         runs = []
         for m in members:
-            files = {k: git_show(FREEZE_COMMIT, f"predictions/{m}/{f}") for k, f in
+            d = os.path.join(preds, m)
+            res = json.loads(read(os.path.join(d, "result.json")) or "{}")
+            if res.get("status") != "done":
+                sys.exit(f"{m}: no finished prediction in {d} (result.json status={res.get('status')!r})")
+            models.add(res.get("model"))
+            files = {k: read(os.path.join(d, f)) for k, f in
                      (("plus_csv", "logitz_plus.csv"), ("minus_csv", "logitz_minus.csv"),
                       ("method_md", "method.md"), ("falsifiers_md", "falsifiers.md"))}
             if not files["plus_csv"] or not files["minus_csv"]:
-                sys.exit(f"missing frozen predictions for {m} at {FREEZE_COMMIT}")
-            check_matrix(files["plus_csv"], 29)
-            check_matrix(files["minus_csv"], 14)
-            runs.append({"id": m, **files})
+                sys.exit(f"missing prediction CSVs for {m} in {d}")
+            check_matrix(files["plus_csv"], PLUS_ROWS, f"{m}/logitz_plus.csv")
+            check_matrix(files["minus_csv"], MINUS_ROWS, f"{m}/logitz_minus.csv")
+            runs.append({"id": m, "model": res.get("model"), "finished_at": res.get("finished_at"),
+                         **{k: v or "" for k, v in files.items()}})
         examples.append({"id": gid, "title": title_of(spec), "spec_md": to_markdown(spec).strip() + "\n",
                          "spec_text": spec, "runs": runs})
-    json.dump({"spec_commit": SPEC_COMMIT, "freeze_commit": FREEZE_COMMIT, "examples": examples},
-              open(out_path, "w"), indent=1)
-    print(f"wrote {out_path}: {len(examples)} examples, {sum(len(e['runs']) for e in examples)} frozen runs")
+    models = sorted(m for m in models if m)
+    json.dump({"source": "host forecast bundle", "models": models, "examples": examples},
+              open(a.out, "w"), indent=1)
+    print(f"wrote {a.out}: {len(examples)} examples, {sum(len(e['runs']) for e in examples)} runs ({', '.join(models)})")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "webapp/baselines.json")
+    main()

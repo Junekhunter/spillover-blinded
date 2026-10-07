@@ -15,12 +15,14 @@ import os
 import re
 import time
 
+import openai
 import yaml
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
 ROOT = os.environ.get("BUNDLE_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 EVALS_DIR = os.path.join(ROOT, "inputs", "evals_orthogonalized")
-MODEL = os.environ.get("PREDICTOR_MODEL", "anthropic/claude-opus-4-7")
+MODEL = os.environ.get("PREDICTOR_MODEL", "anthropic/claude-opus-5-5")
 MAX_STEPS = int(os.environ.get("MAX_AGENT_STEPS", "60"))
 TOKEN_BUDGET = int(os.environ.get("RUN_TOKEN_BUDGET", "2000000"))  # cumulative prompt tokens per run
 
@@ -276,7 +278,7 @@ TOOLS = [
     _fn("eval_items", "Page through an eval's items (user prompts), optionally with meta (pole exemplars etc).",
         {"eval": {"type": "string"}, "split": {"type": "string", "enum": ["train", "test", "all"]},
          "offset": {"type": "integer"}, "limit": {"type": "integer"}, "include_meta": {"type": "boolean"}}, ["eval"]),
-    _fn("judge_overlap", "29x29 eval-level judge-prompt cosine similarity (aggregated from the _judge_cossim_*.csv files).",
+    _fn("judge_overlap", f"{len(EVALS)}x{len(EVALS)} eval-level judge-prompt cosine similarity (aggregated from the _judge_cossim_*.csv files).",
         {"variant": {"type": "string", "enum": ["embed_without_preamble", "embed_with_preamble",
                                                  "token_without_preamble", "token_with_preamble"]}}, []),
     _fn("record_inspection", "Turn 1 of the protocol: flagged issues and operationalization choices. No numbers.",
@@ -285,9 +287,10 @@ TOOLS = [
     _fn("request_clarification", "Stop and ask the participant to clarify their spec (becomes NEEDS_CLARIFICATION.md).",
         {"questions_md": {"type": "string"}}, ["questions_md"]),
     _fn("submit_predictions",
-        "Turn 2: submit both matrices plus method.md and falsifiers.md. `plus` maps each of the 29 '<eval>-plus' "
-        "row labels, `minus` each of the 14 '<eval>-minus' labels, to a list of 29 numbers in this exact column "
-        "order: " + ", ".join(EVALS) + ". Diagonal is ignored (use null). null elsewhere means 'silent on this cell'.",
+        f"Turn 2: submit both matrices plus method.md and falsifiers.md. `plus` maps each of the {len(PLUS_ROWS)} "
+        f"'<eval>-plus' row labels, `minus` each of the {len(MINUS_ROWS)} '<eval>-minus' labels, to a list of "
+        f"{len(EVALS)} numbers in this exact column order: " + ", ".join(EVALS) +
+        ". Diagonal is ignored (use null). null elsewhere means 'silent on this cell'.",
         {"plus": ROW_OBJ, "minus": ROW_OBJ, "method_md": {"type": "string"}, "falsifiers_md": {"type": "string"}},
         ["plus", "minus", "method_md", "falsifiers_md"]),
 ]
@@ -336,8 +339,7 @@ def run_agent(handle, spec_md, on_progress=lambda msg, usage: None):
     for step in range(MAX_STEPS):
         usage["steps"] = step + 1
         _mark_cache(messages)
-        resp = client.chat.completions.create(
-            model=MODEL, messages=messages, tools=TOOLS, max_tokens=24000)
+        resp = _chat(client, model=MODEL, messages=messages, tools=TOOLS, max_tokens=24000)
         if resp.usage:
             usage["prompt_tokens"] += resp.usage.prompt_tokens or 0
             usage["completion_tokens"] += resp.usage.completion_tokens or 0
@@ -385,6 +387,66 @@ def run_agent(handle, spec_md, on_progress=lambda msg, usage: None):
 
     return {"status": "failed", "error": f"No submission after {MAX_STEPS} steps.", "usage": usage,
             "inspection": ws.inspection}
+
+
+STREAM_ATTEMPTS = int(os.environ.get("STREAM_ATTEMPTS", "3"))
+_RETRYABLE = (openai.APIConnectionError, openai.APITimeoutError, openai.InternalServerError, openai.RateLimitError)
+
+
+def _chat(client, **kwargs):
+    """One model call, streamed and reassembled into an ordinary ChatCompletion.
+
+    The LiteLLM endpoint sits behind Cloudflare, which cuts non-streaming requests
+    after ~120 s (HTTP 524); Turn-2 submissions (20k+ output tokens) take longer, so
+    we stream to keep bytes flowing. The client retries failures at request start
+    (max_retries); a stream that breaks midway is retried here from scratch.
+    """
+    create = client.chat.completions.create
+    for attempt in range(STREAM_ATTEMPTS):
+        try:
+            try:
+                stream = create(**kwargs, stream=True, stream_options={"include_usage": True})
+            except TypeError as e:  # create() already wrapped by a caller that streams itself
+                if "stream" not in str(e):
+                    raise
+                return create(**kwargs)
+            if isinstance(stream, ChatCompletion):
+                return stream
+            return _collect(stream, kwargs.get("model"))
+        except _RETRYABLE:
+            if attempt == STREAM_ATTEMPTS - 1:
+                raise
+            time.sleep(5 * 2 ** attempt)
+
+
+def _collect(stream, model):
+    content, tools, finish, usage, cid = [], {}, None, None, "stream"
+    for chunk in stream:
+        cid, model = chunk.id or cid, chunk.model or model
+        if chunk.usage:
+            usage = chunk.usage.model_dump()
+        for ch in chunk.choices or []:
+            d = ch.delta
+            if d.content:
+                content.append(d.content)
+            for tc in d.tool_calls or []:
+                slot = tools.setdefault(tc.index, {"id": None, "type": "function",
+                                                   "function": {"name": "", "arguments": ""}})
+                if tc.id:
+                    slot["id"] = tc.id
+                if tc.function and tc.function.name:
+                    slot["function"]["name"] += tc.function.name
+                if tc.function and tc.function.arguments:
+                    slot["function"]["arguments"] += tc.function.arguments
+            if ch.finish_reason:
+                finish = ch.finish_reason
+    msg = {"role": "assistant", "content": "".join(content) or None}
+    if tools:
+        msg["tool_calls"] = [tools[i] for i in sorted(tools)]
+    return ChatCompletion.model_validate({
+        "id": cid, "object": "chat.completion", "created": int(time.time()), "model": model or "",
+        "choices": [{"index": 0, "message": msg, "finish_reason": finish or "stop"}],
+        "usage": usage})
 
 
 def _mark_cache(messages):

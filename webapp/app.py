@@ -306,7 +306,7 @@ async def _execute(run_id, handle, spec_md):
 def _check_csv(text, rows):
     parsed = list(csv.reader(io.StringIO(text.strip())))
     if not parsed or parsed[0][1:] != agent.EVALS:
-        raise HTTPException(400, "Header row must be 'treatment' followed by the 29 eval names in template order.")
+        raise HTTPException(400, f"Header row must be 'treatment' followed by the {len(agent.EVALS)} eval names in template order.")
     labels = [r[0] for r in parsed[1:]]
     if labels != rows:
         raise HTTPException(400, f"Row labels must match the template exactly ({len(rows)} rows).")
@@ -354,6 +354,12 @@ def submit(body: Submit, authorization: str = Header(None)):
     editable(e)
     if not e["plus_csv"]:
         raise HTTPException(400, "Generate or hand-edit matrices before submitting.")
+    try:
+        _check_csv(e["plus_csv"], agent.PLUS_ROWS)
+        _check_csv(e["minus_csv"] or "", agent.MINUS_ROWS)
+    except HTTPException:
+        raise HTTPException(400, "Your matrices don't match the current eval set (they may predate the switch to "
+                                 f"{len(agent.EVALS)} evals). Run the predictor again or re-edit them.")
     with db() as c:
         if c.execute("SELECT 1 FROM runs WHERE handle=? AND status IN ('queued','running')", (e["handle"],)).fetchone():
             raise HTTPException(409, "Wait for your current run to finish before submitting.")

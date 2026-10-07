@@ -36,6 +36,6 @@ required to apply the rule.
 Falsifiers
 - If the top-decile-spillover cells show no alphabetical clustering vs a
   permutation null, the hypothesis is dead.
-- If semantic-family pairs (e.g., harm-refusal -> harm-elaboration)
+- If semantic-family pairs (e.g., harm-refusal -> punitiveness)
   dominate the spillover regardless of letter distance, the hypothesis
   is dead.

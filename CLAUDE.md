@@ -7,8 +7,9 @@ instead — that file is appended to your system prompt and is authoritative.
 
 ## What this repo is
 
-The host fine-tuned Llama 3.1 8B Instruct on 29 propensities (both
-directions for 14 of them) and measured spillover. They've sealed the
+The host fine-tuned models (Qwen3.5-9B, Qwen3.5-9B-Base and
+Nemotron-3-Super-120B) on 24 propensities (both directions for 21 of them;
+SFT on each pole's reference answers) and measured spillover. They've sealed the
 observed matrices in `RESULTS/` and want you to predict them.
 
 ## The flow

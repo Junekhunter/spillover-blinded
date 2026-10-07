@@ -59,6 +59,13 @@ function blank(rows) {
   return { cols, rows: rows.slice(), vals: rows.map(() => cols.map(() => null)) };
 }
 
+// Stored matrices from an older eval set don't fit the current template.
+function fits(csv, rows) {
+  if (!csv) return false;
+  const m = parseCSV(csv);
+  return m.cols.join() === S.meta.evals.join() && m.rows.join() === rows.join();
+}
+
 const locked = () => S.meta.frozen || !!S.me?.submitted_at;
 
 function isDiag(row, col) { return row.replace(/-(plus|minus)$/, "") === col; }
@@ -103,21 +110,22 @@ function slides() {
     { cls: "title", html: `
       <p class="kicker">A prediction challenge</p>
       <h1 class="big">Fine-tune a model on one trait.<br>What else changes?</h1>
-      <p class="lede">We trained Llama&nbsp;3.1&nbsp;8B on 29 behavioural traits, one at a time, and measured all 29 after each run.
+      <p class="lede">We fine-tuned three models on ${m.evals.length} behavioural traits, one at a time, and measured all ${m.evals.length} after each run.
         The results are sealed. Can you predict them?</p>` },
     { html: `
       <p class="kicker">1 · The traits</p>
-      <h2 class="big">29 propensities</h2>
-      <p class="lede">From caring about animals to power-seeking. For the <span class="chip bi inline">14 two-sided</span> traits we trained
-        both directions, more and less. The other 15 were only trained upward.</p>
+      <h2 class="big">${m.evals.length} propensities</h2>
+      <p class="lede">From caring about animals to power-seeking. For the <span class="chip bi inline">${m.minus_rows.length} two-sided</span> traits we trained
+        both directions, more and less. The other ${m.evals.length - m.minus_rows.length} (the three ethical frameworks) were only trained upward.</p>
       <div class="chips">${chips}</div>` },
     { html: `
       <p class="kicker">2 · The experiment</p>
-      <h2 class="big">43 fine-tunes × 29 evals</h2>
-      <p class="lede">Each eval has its own questions, system prompts that produce the trait, and an LLM judge.
-        Training data = the model's own answers under a trait's system prompt. Then every fine-tune is scored on every eval.</p>
-      <figure class="fig"><a href="/static/fig_overview.svg" target="_blank" title="Open full size"><img src="/static/fig_overview.svg" alt="Paper figure: Step 1, building the 29 evals; Step 2, eliciting a propensity and scoring on all 29, producing a spillover matrix."></a>
-        <figcaption>From the paper. This challenge uses <strong>SFT on Llama-3.1-8B-Instruct</strong> only. The heatmap is illustrative.</figcaption></figure>` },
+      <h2 class="big">${m.plus_rows.length + m.minus_rows.length} fine-tunes × ${m.evals.length} evals</h2>
+      <p class="lede">Each eval has its own questions, reference answers for each pole, and an LLM judge.
+        Training data = the trait's training questions paired with its reference answers for one pole (plain SFT). Then every fine-tune is scored on every eval,
+        on three models: Qwen3.5-9B, Qwen3.5-9B-Base and Nemotron-3-Super-120B.</p>
+      <figure class="fig"><a href="/static/fig_overview.svg" target="_blank" title="Open full size"><img src="/static/fig_overview.svg" alt="Paper figure: Step 1, building the ${m.evals.length} evals; Step 2, eliciting a propensity and scoring on all ${m.evals.length}, producing a spillover matrix."></a>
+        <figcaption>From the paper. This challenge uses <strong>SFT on each trait's reference answers</strong>, on Qwen3.5-9B, Qwen3.5-9B-Base and Nemotron-3-Super-120B. Your one prediction is compared with each model's observed matrix. The heatmap is illustrative.</figcaption></figure>` },
     { html: `
       <p class="kicker">3 · What you predict</p>
       <h2 class="big">The spillover</h2>
@@ -130,13 +138,13 @@ function slides() {
       <p class="lede">Your matrices are compared with the real ones by rank correlation (Spearman ρ) over the off-diagonal cells, averaged across
         both matrices. Getting the scale exactly right doesn't matter. What matters is which cells move most, and in which direction.</p>
       <div class="callout warn" style="max-width:640px"><strong>Watch the direction.</strong> Higher <code>harm-refusal</code> = <em>less</em> refusal.
-        Higher <code>spending-advice</code> = advising people to spend <em>less</em>. The eval pages show each judge's rubric.</div>` },
+        The plus pole of <code>neuroticism</code> is <em>neurotic</em>. The eval pages show each judge's rubric.</div>` },
     { html: `
       <p class="kicker">5 · How you play</p>
       <h2 class="big">You write the theory. Claude does the arithmetic.</h2>
       <ol class="how">
         <li><strong>Write a short theory</strong> of why traits spill over. A few sentences is enough; you can add optional detail if you want.</li>
-        <li><strong>A blinded Claude applies it</strong> to all 1,204 cells on our server. It never sees the results. You get up to ${m.runs_per_handle} runs.</li>
+        <li><strong>A blinded Claude applies it</strong> to all ${(m.plus_rows.length * (m.evals.length - 1) + m.minus_rows.length * (m.evals.length - 1)).toLocaleString("en-US")} cells on our server. It never sees the results. You get up to ${m.runs_per_handle} runs.</li>
         <li><strong>Tweak and submit.</strong> You can hand-edit cells if you like. Submitting is final, and it unlocks the predictions of the paper's nine framings so you can compare.</li>
       </ol>` },
     { cls: "title", html: `
@@ -148,7 +156,7 @@ function slides() {
         <button class="btn primary" id="claimBtn">Start</button>
       </div>
       <p class="small muted" style="margin-top:10px">${token() ? `You already have an entry on this device. <a href="#/me">Open it</a>.` : "No account needed. You get a private link that works as your password."}</p>`}
-      <p class="small" style="margin-top:28px"><a href="#/examples">Start from one of the paper's framings (H1–H9)</a> · <a href="#/evals">Browse the 29 evals</a> · <a href="#/about">Rules &amp; fine print</a></p>` },
+      <p class="small" style="margin-top:28px"><a href="#/examples">Start from one of the paper's framings (H1–H9)</a> · <a href="#/evals">Browse the ${m.evals.length} evals</a> · <a href="#/about">Rules &amp; fine print</a></p>` },
   ];
 }
 
@@ -257,13 +265,16 @@ function renderAbout() {
     <h1>Rules &amp; fine print</h1>
     <h2>What exactly is predicted</h2>
     <p>Two matrices of <strong>logitz</strong>: the shift on each eval (empirical logit of the 0–100 judge score), z-scored per eval.</p>
-    <ul><li><strong>plus</strong>: 29 fine-tunes (each trait trained upward) × 29 evals</li>
-      <li><strong>minus</strong>: 14 fine-tunes (two-sided traits trained downward) × 29 evals</li></ul>
-    <p>The diagonal is excluded. Score = Spearman ρ over the 812 + 392 off-diagonal cells, with bootstrap 95% CIs; the headline is the mean of the two.</p>
+    <ul><li><strong>plus</strong>: ${m.plus_rows.length} fine-tunes (each trait trained upward) × ${m.evals.length} evals</li>
+      <li><strong>minus</strong>: ${m.minus_rows.length} fine-tunes (two-sided traits trained downward) × ${m.evals.length} evals</li></ul>
+    <p>A fine-tune is SFT on the trait's training questions paired with that pole's reference answers. The observed matrices come from
+      three models: Qwen3.5-9B, Qwen3.5-9B-Base and Nemotron-3-Super-120B. You submit one model-agnostic pair of matrices, compared with each.</p>
+    <p>The diagonal is excluded. Score = Spearman ρ over the ${m.plus_rows.length * (m.evals.length - 1)} + ${m.minus_rows.length * (m.evals.length - 1)} off-diagonal cells, with bootstrap 95% CIs; the headline is the mean of the two.</p>
     <h2>The predictor</h2>
     <p><code>${esc(m.model)}</code> runs the repo's <code>BLINDED_PROMPT.md</code> protocol: an inspection turn without numbers, then generation.
-      It can read the eval bundle (questions, system prompts, judge prompts, judge-overlap similarities) and your spec. It can't run code, and the results aren't on the server.
-      The host's nine framings (<a href="#/examples">H1–H9</a>) were made with the command-line version, which can run code.</p>
+      It can read the eval bundle (questions, reference answers, system prompts, judge prompts, judge-overlap similarities) and your spec. It can't run code, and the results aren't on the server.
+      The host's nine framings (<a href="#/examples">H1–H9</a>) were predicted by the same model with the same web harness (no code execution), so your web runs are directly comparable with them.
+      The command-line version (Claude Code) can run code, so CLI runs are not strictly apples-to-apples with web runs.</p>
     <h2>H1–H9</h2>
     <p>The specs of the paper's nine framings are public examples, and you can start from one. Their frozen predictions unlock once you submit
       your own entry. Submitting is final, so seeing them can't change your entry.</p>
@@ -286,9 +297,9 @@ function renderAbout() {
 function renderEvals(h) {
   const sel = decodeURIComponent((h.split("/")[2] || "").split("?")[0]);
   view().innerHTML = `
-    <div class="ws-head"><h1>The 29 evals</h1>
-      <p class="muted" style="max-width:720px">Each eval is both a fine-tuning target (trained on base-model responses under the
-      pole's system prompt) and a column in the matrices. Open one to see its system prompts, judge scale and sample test items.</p>
+    <div class="ws-head"><h1>The ${S.evals.length} evals</h1>
+      <p class="muted" style="max-width:720px">Each eval is both a fine-tuning target (SFT on its training questions paired with one pole's
+      reference answers) and a column in the matrices. Open one to see its poles, judge scale, and sample test items with their reference answers.</p>
       <input type="text" id="q" placeholder="Filter…" style="max-width:320px" aria-label="Filter evals"></div>
     <div id="detail"></div>
     <div class="eval-list" id="list"></div>`;
@@ -329,11 +340,12 @@ function renderEvalDetail(name) {
         <span class="pill ${e.bipolar ? "bi" : ""}">${e.bipolar ? "bipolar — plus & minus fine-tunes" : "plus-only — no minus fine-tune"}</span>
         <span class="spacer"></span><a class="btn small" href="#/evals">Close</a></div>
       ${e.trap ? `<div class="callout warn small"><strong>Direction trap:</strong> ${esc(e.trap)}</div>` : ""}
-      ${d ? `<p>${esc(d.definition)}</p><p><strong>Plus pole.</strong> ${esc(d.plus_pole)}</p><p><strong>Minus pole.</strong> ${esc(d.minus_pole)}</p>` : `<p class="muted small">No entry in definitions.json for this eval — the meaning comes from its system prompts and judge.</p>`}
+      ${d ? `<p>${esc(d.definition)}</p><p><strong>Plus pole${d.plus_pole_name ? ` (${esc(d.plus_pole_name)})` : ""}.</strong> ${esc(d.plus_pole)}</p>${d.minus_pole ? `<p><strong>Minus pole${d.minus_pole_name ? ` (${esc(d.minus_pole_name)})` : ""}.</strong> ${esc(d.minus_pole)}</p>` : `<p class="small muted">No minus pole: this eval is only trained upward. Its natural contrast is the other two ethical frameworks.</p>`}` : `<p class="muted small">No entry in definitions.json for this eval — the meaning comes from its system prompts and judge.</p>`}
       <p class="small muted">${e.n_items} items (${e.n_train} train used for fine-tuning, ${e.n_test} test used for scoring) · meta keys: ${e.meta_keys.map((k) => `<code>${esc(k)}</code>`).join(", ")}</p>
-      <h3>System prompts (how the fine-tuning data was generated)</h3>${sp}
-      <h3>Judge prompt${Object.keys(e.judge_scales).length > 1 ? "s" : ""} <span class="small muted" style="font-weight:400">(eval-specific part; the shared preamble is omitted)</span></h3>${scales}
-      <h3>Sample test items</h3>${samples}
+      <h3>Judge rubric${Object.keys(e.judge_scales).length > 1 ? "s" : ""} <span class="small muted" style="font-weight:400">(where score direction is defined)</span></h3>${scales}
+      ${e.evidence_gate ? `<details><summary>Evidence gate <span class="small muted">(run first; a score below 50 drops the response)</span></summary><pre>${esc(e.evidence_gate)}</pre></details>` : ""}
+      <h3>System prompts <span class="small muted" style="font-weight:400">(describe each pole; the fine-tuning data is the reference answers below)</span></h3>${sp}
+      <h3>Sample test items <span class="small muted" style="font-weight:400">(with each pole's reference answer)</span></h3>${samples}
     </div>`;
   $("#detail").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -525,8 +537,8 @@ function runHTML(r) {
     out += `<div class="row" style="margin-bottom:10px">
         ${adopted ? `<span class="pill ok">These are your entry's current matrices</span>` : `<button class="btn" id="adopt">Use this run's matrices for my entry</button>`}
         <span class="spacer"></span><label class="small row" style="gap:6px"><input type="checkbox" id="showVals"> show values</label></div>
-      <h3>logitz_plus <span class="muted small">(29 × 29)</span></h3><div class="matrix-wrap" id="mp"></div>
-      <h3>logitz_minus <span class="muted small">(14 × 29)</span></h3><div class="matrix-wrap" id="mm"></div>
+      <h3>logitz_plus <span class="muted small">(${S.meta.plus_rows.length} × ${S.meta.evals.length})</span></h3><div class="matrix-wrap" id="mp"></div>
+      <h3>logitz_minus <span class="muted small">(${S.meta.minus_rows.length} × ${S.meta.evals.length})</span></h3><div class="matrix-wrap" id="mm"></div>
       <div class="legend" style="margin-top:8px"><span>negative</span><span class="bar"></span><span>positive</span><span>· hatched = diagonal (not scored)</span></div>`;
   }
   if (r.inspection) out += `<details><summary>Turn 1: inspection & operationalization choices</summary><div class="md">
@@ -605,8 +617,8 @@ function tabMatrices() {
     S.edit = {
       which: S.edit?.which || "plus",
       showValues: S.edit?.showValues || false,
-      plus: me.plus_csv ? parseCSV(me.plus_csv) : blank(S.meta.plus_rows),
-      minus: me.minus_csv ? parseCSV(me.minus_csv) : blank(S.meta.minus_rows),
+      plus: fits(me.plus_csv, S.meta.plus_rows) ? parseCSV(me.plus_csv) : blank(S.meta.plus_rows),
+      minus: fits(me.minus_csv, S.meta.minus_rows) ? parseCSV(me.minus_csv) : blank(S.meta.minus_rows),
       dirty: false,
     };
   }
@@ -617,8 +629,8 @@ function tabMatrices() {
       (adopt one in the Generate tab) or from the blank template. Click a cell, type a value, use arrow keys to move. Only ordering and sign matter.</p>
     <div class="row">
       <div class="tabs" style="margin:0;border:0">
-        <button data-w="plus" class="${E.which === "plus" ? "active" : ""}">plus (29 × 29)</button>
-        <button data-w="minus" class="${E.which === "minus" ? "active" : ""}">minus (14 × 29)</button></div>
+        <button data-w="plus" class="${E.which === "plus" ? "active" : ""}">plus (${S.meta.plus_rows.length} × ${S.meta.evals.length})</button>
+        <button data-w="minus" class="${E.which === "minus" ? "active" : ""}">minus (${S.meta.minus_rows.length} × ${S.meta.evals.length})</button></div>
       <span class="pill">current: ${esc(src)}</span>
       <span class="spacer"></span>
       <label class="small row" style="gap:6px"><input type="checkbox" id="showVals2" ${E.showValues ? "checked" : ""}> show values</label>
@@ -777,8 +789,8 @@ async function renderExamples(h) {
   const ex = S.examples.find((x) => x.id === sel);
   view().innerHTML = `
     <div class="ws-head"><h1>The host's framings: H1–H9</h1>
-      <p class="muted" style="max-width:740px">These nine hypotheses were tested in the paper with the command-line pipeline. Read them for inspiration, or start
-        your own entry from one. ${preds ? "You've submitted, so their frozen predictions are unlocked below." :
+      <p class="muted" style="max-width:740px">These are the host's nine hypotheses, predicted by <code>${esc(S.meta.model)}</code> with the same
+        web harness your runs use. Read them for inspiration, or start your own entry from one. ${preds ? "You've submitted, so their frozen predictions are unlocked below." :
         "Their <strong>predictions stay locked until you submit your own entry</strong>, so you aren't anchored on their numbers."}</p></div>
     <div class="ex-layout">
       <div class="ex-list">${S.examples.map((x) => `

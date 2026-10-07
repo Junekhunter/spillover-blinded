@@ -9,10 +9,10 @@ exactly ONE hypothesis. You are one of several predictors; you never see the
 others' work and you never see observed results.
 
 ## Inputs you MAY read
-- `./inputs/**` — eval definitions, `eval_anchors_summary.csv` (BASE-MODEL
-  anchor behavior; legitimate for magnitude calibration), eval descriptions,
-  and the `PREDICT_transfer_matrix_*.csv` TEMPLATES (headers + row labels
-  only, no values).
+- `./inputs/**` — eval definitions, items, per-pole reference answers (the
+  SFT targets), judge prompts, judge-overlap similarities, and the
+  `PREDICT_transfer_matrix_*.csv` TEMPLATES (headers + row labels only, no
+  values). `inputs/evals_orthogonalized/READING_GUIDE.md` is authoritative.
 - `./hypotheses/<YOUR_HYPOTHESIS>.md` — your assigned hypothesis spec.
 - `./BLINDED_PROMPT.md` — the shared protocol. Read it first.
 
@@ -28,8 +28,8 @@ about to break the blind. Do not work around the permission denial.
 
 ## What you predict
 ONLY two matrices:
-- `logitz_plus.csv`  — 29 treatment rows x 29 eval columns
-- `logitz_minus.csv` — 14 treatment rows x 29 eval columns
+- `logitz_plus.csv`  — 24 treatment rows x 24 eval columns
+- `logitz_minus.csv` — 21 treatment rows x 24 eval columns
 
 You do NOT predict theta. theta does not exist as an output of this task.
 See BLINDED_PROMPT.md: logitz is already z-scored per eval, and the scorer
@@ -46,7 +46,7 @@ So calibrate logitz well in BOTH direction AND relative magnitude.
    blocks you, write `./predictions/<YOUR_HYPOTHESIS>/NEEDS_CLARIFICATION.md`
    describing it and STOP — do not guess.
 2. **Turn 2 — generate.** Produce the two logitz matrices per the template
-   shapes. Fill every non-`reward-hacking` cell unless your hypothesis is
+   shapes. Fill every off-diagonal cell unless your hypothesis is
    genuinely silent on a cell, in which case leave it empty and say so.
 3. **Write outputs ONLY to `./predictions/<YOUR_HYPOTHESIS>/`:**
    - `logitz_plus.csv`, `logitz_minus.csv`
@@ -58,9 +58,8 @@ So calibrate logitz well in BOTH direction AND relative magnitude.
 ## Hard rules (the H5 lesson)
 - You emit logitz only. There is no theta file to hand-engineer.
 - Do NOT fold per-eval position terms derived from observed/diagonal data
-  into your prediction. `eval_anchors_summary.csv` holds BASE-model anchors
-  and is fine for magnitude calibration; the OBSERVED SFT diagonal is not in
-  your inputs and must not be reconstructed or guessed.
+  into your prediction. The OBSERVED SFT diagonal is not in your inputs and
+  must not be reconstructed or guessed.
 - Do not re-derive, "improve", or post-hoc adjust predictions after Turn 2.
   The frozen matrices are exactly what you committed to.
 - If you cannot complete the task honestly, say so plainly. A clean

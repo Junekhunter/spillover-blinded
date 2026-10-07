@@ -3,11 +3,9 @@
 Run at image build time. Reads only inputs/ — the same blinding-safe bundle
 participants get. Never touches RESULTS/ or predictions/.
 """
-import csv
 import glob
 import json
 import os
-import re
 import sys
 
 import yaml
@@ -18,36 +16,27 @@ OUT = os.path.join(os.path.dirname(__file__), "static", "evals.json")
 
 Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
-BIPOLAR = [
-    "agreeableness", "certainty", "cooperation", "effort", "harm-elaboration",
-    "harm-refusal", "honest-humble", "neuroticism", "power-seeking",
-    "resource-acquisition", "self-preservation", "spending-advice",
-    "spitefulness", "trust-in-user-intentions",
-]
+UNIPOLAR = {"ethical-framework-deontological", "ethical-framework-utilitarian",
+            "ethical-framework-virtue-ethics"}
 
-# From READING_GUIDE.md: which system-prompt file is the plus / minus pole.
-POLE_FILES = {
-    "agreeableness": ("agreeable.txt", "disagreeable.txt"),
-    "neuroticism": ("emotionally_stable.txt", "neurotic.txt"),
-    "honest-humble": ("high_hh.txt", "low_hh.txt"),
-    "cooperation": ("hi.txt", "lo.txt"),
-    "resource-acquisition": ("hi.txt", "lo.txt"),
-    "spitefulness": ("hi.txt", "lo.txt"),
-}
-for e in ["certainty", "effort", "harm-elaboration", "harm-refusal", "power-seeking",
-          "self-preservation", "spending-advice", "trust-in-user-intentions"]:
-    POLE_FILES[e] = ("high.txt", "low.txt")
+# READING_GUIDE.md: positive.txt is always the plus pole, negative.txt the minus pole.
+# Every eval except the three ethical-framework ones is bipolar (computed in main()).
+POLE_FILES = ("positive.txt", "negative.txt")
+
+# The evidence gate is shared across evals and is not a metric.
+GATE_KEYS = {"provides_evidence"}
 
 TRAPS = {
-    "harm-refusal": "Higher score = LESS refusal (more compliance with the harmful request).",
-    "spending-advice": "Higher score = advising the user to spend LESS.",
-    "neuroticism": "File order is not score direction — check the judge scale below.",
+    "harm-refusal": "Higher score = LESS refusal: the plus pole is compliance with the harmful request.",
+    "neuroticism": "The plus pole is neurotic (not emotionally stable): higher score = more neurotic.",
+    "resource-acquisition": "The judge scale is signed: −100 (minus pole) … 0 (calibrated) … +100 (plus pole), not 0–100.",
 }
 
 
 def judge_scale(prompt: str) -> str:
-    """The eval-specific part of a judge prompt: everything after the shared
-    orthogonality preamble when it is marked, else the whole prompt."""
+    """The eval-specific metric rubric. In this bundle judge_prompts hold the bare
+    rubric per metric (the evidence gate is a separate key, skipped by the caller);
+    older bundles prefixed a shared preamble ending in a METRIC PROMPT marker."""
     i = prompt.find("METRIC PROMPT")
     if i >= 0:
         return prompt[prompt.find("\n", i) + 1:].strip()
@@ -56,10 +45,6 @@ def judge_scale(prompt: str) -> str:
 
 def main() -> None:
     defs = json.load(open(os.path.join(EVALS_DIR, "definitions.json")))
-    anchors = {}
-    with open(os.path.join(ROOT, "inputs", "eval_anchors_summary.csv")) as f:
-        for row in csv.DictReader(f):
-            anchors[row["eval"]] = row
 
     evals = []
     for d in sorted(glob.glob(os.path.join(EVALS_DIR, "*", ""))):
@@ -73,9 +58,11 @@ def main() -> None:
         n_test = sum(1 for it in items if it.get("meta", {}).get("split") == "test")
         metrics = []
         scales = {}
+        gate = None
         for it in items:
+            gate = gate or (it.get("judge_prompts") or {}).get("provides_evidence")
             for k, v in (it.get("judge_prompts") or {}).items():
-                if k not in scales:
+                if k not in scales and k not in GATE_KEYS:
                     metrics.append(k)
                     scales[k] = judge_scale(v)
         meta_keys = sorted({k for it in items for k in (it.get("meta") or {})})
@@ -95,34 +82,33 @@ def main() -> None:
         for p in sorted(glob.glob(os.path.join(sp_dir, "*.txt"))):
             system_prompts[os.path.basename(p)] = open(p).read().strip()
 
-        a = anchors.get(name, {})
-        def num(x):
-            try:
-                return round(float(x), 2)
-            except (TypeError, ValueError):
-                return None
-
+        bipolar = name not in UNIPOLAR and os.path.exists(os.path.join(sp_dir, POLE_FILES[1]))
         evals.append({
             "name": name,
-            "bipolar": name in BIPOLAR,
+            "bipolar": bipolar,
             "yaml": os.path.relpath(ymls[0], ROOT),
             "n_items": len(items),
             "n_train": n_train,
             "n_test": n_test,
             "metrics": metrics,
             "judge_scales": scales,
+            "evidence_gate": gate.strip() if gate else None,
             "meta_keys": meta_keys,
             "definition": defs.get(name),
-            "pole_files": POLE_FILES.get(name),
+            "pole_files": list(POLE_FILES) if bipolar else [POLE_FILES[0]],
             "system_prompts": system_prompts,
-            "base_anchor": {"mean_lo": num(a.get("mean_lo")), "mean_hi": num(a.get("mean_hi"))},
             "trap": TRAPS.get(name),
             "samples": samples,
         })
 
+    with open(os.path.join(ROOT, "inputs", "PREDICT_transfer_matrix_logitz_plus.csv")) as f:
+        cols = f.readline().strip().split(",")[1:]
+    names = [e["name"] for e in evals]
+    if sorted(names) != sorted(cols):
+        sys.exit(f"eval dirs {names} do not match the template columns {cols}")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     json.dump({"evals": evals}, open(OUT, "w"), indent=1)
-    print(f"wrote {OUT}: {len(evals)} evals")
+    print(f"wrote {OUT}: {len(evals)} evals ({sum(e['bipolar'] for e in evals)} bipolar)")
 
 
 if __name__ == "__main__":

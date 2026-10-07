@@ -3,8 +3,9 @@
 A single-container web app that removes the Claude Code / CLI step for participants:
 
 1. **Intro deck**: one idea per slide (scroll, arrow keys or swipe to advance).
-2. **Eval browser**: each of the 29 evals with its system prompts, the eval-specific judge
-   prompt, sample test items and direction-trap warnings.
+2. **Eval browser**: each of the 24 evals (21 bipolar, 3 plus-only ethical frameworks) with its
+   poles, judge rubric(s), evidence gate, system prompts, sample test items with their per-pole
+   reference answers (the SFT targets), and direction-trap warnings.
 3. **My entry**: claim a handle (you get a private link that acts as the password), then:
    - **Write spec**: only the thesis is required. Definitions, literature, operationalization,
      prerequisites and falsifiers are optional, and the predictor fills in what's missing.
@@ -13,7 +14,8 @@ A single-container web app that removes the Claude Code / CLI step for participa
    - **Matrices**: optional hand-editing of cells, plus CSV import/export.
    - **Submit**: final. It locks the entry and unlocks the host's H1–H9 predictions for comparison.
 4. **H1–H9**: the host's framings as public examples ("start my entry from this"). Their frozen
-   predictions are only returned by the API to participants whose own entry is submitted.
+   predictions (Claude Opus 5.5, made with this same `agent.py` harness via the forecast bundle's
+   `run_forecasts.py`) are only returned by the API to participants whose own entry is submitted.
 5. **Entries**: the public list of submitted handles and titles. Contents stay private until freeze.
 
 ## How it differs from `scripts/generate.sh`
@@ -21,8 +23,11 @@ A single-container web app that removes the Claude Code / CLI step for participa
 The predictor (`agent.py`) is a tool-use loop over the LiteLLM proxy, not Claude Code. On a
 public server a spec could carry instructions, so the model gets **no shell or Python**. It only
 has read-only access to `inputs/`, `BLINDED_PROMPT.md` and the participant's own spec, plus an
-eval-level judge-overlap table and a structured `submit_predictions` tool. Web runs are therefore
-not strictly apples-to-apples with the CLI-generated H1–H9. The About page says so.
+eval-level judge-overlap table and a structured `submit_predictions` tool. Model calls are
+streamed (the LiteLLM endpoint sits behind Cloudflare, which cuts non-streaming requests after
+~120 s), with retries. The host's H1–H9 were generated with this same harness and model, so web
+runs are comparable with them; CLI runs (Claude Code, can execute code) are not strictly
+apples-to-apples. The About page says so.
 
 ## Blinding
 
@@ -30,15 +35,17 @@ not strictly apples-to-apples with the CLI-generated H1–H9. The About page say
   `webapp/` into a clean build context. Always deploy from that directory, never from the repo
   root, so `RESULTS/`, `predictions/` and `hypotheses/` are never uploaded. The Dockerfile also
   fails the build if `RESULTS/` or `predictions/` exist in the context.
-- `build_baselines.py` (called by `stage.sh`) rebuilds the H1–H9 specs (commit `1fa4674`) and
-  frozen predictions (commit `2b41eda`) from git history into `webapp/baselines.json`, which is
-  gitignored and served only through the gated API.
+- `build_baselines.py` (called by `stage.sh`) reads the H1–H9 specs (`hypotheses/<H>.md`) and
+  predictions (`predictions/<H>/`, all 14 runs must have `result.json` status `done`) from the
+  host's forecast bundle outside this repo (`--bundle DIR`, default `$BASELINE_BUNDLE` or
+  `~/Documents/spillover-forecast-rep`), checks their shapes against `inputs/` templates, and
+  writes `webapp/baselines.json`, which is gitignored and served only through the gated API.
 
 ## Run locally
 
 ```bash
 python3 webapp/build_index.py                       # -> webapp/static/evals.json
-python3 webapp/build_baselines.py                   # -> webapp/baselines.json (optional)
+python3 webapp/build_baselines.py                   # -> webapp/baselines.json (optional; needs the forecast bundle)
 pip install -r webapp/requirements.txt
 cd webapp && DB_PATH=./dev.db LITELLM_API_KEY=... LITELLM_BASE_URL=https://litellm.nielsrolf.com \
   uvicorn app:app --reload
@@ -58,7 +65,7 @@ webapp/stage.sh /tmp/spillover-build
 |---|---|---|
 | `LITELLM_API_KEY` | — | required for generation |
 | `LITELLM_BASE_URL` | `http://host.docker.internal:9274` | lenovo's LiteLLM |
-| `PREDICTOR_MODEL` | `anthropic/claude-opus-4-7` | |
+| `PREDICTOR_MODEL` | `anthropic/claude-opus-5-5` | |
 | `RUNS_PER_HANDLE` | `3` | runs that fail on a server error are refunded |
 | `DAILY_RUN_CAP` | `40` | server-wide, rolling 24 h |
 | `MAX_CONCURRENT_RUNS` | `2` | |

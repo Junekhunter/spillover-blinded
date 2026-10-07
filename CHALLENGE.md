@@ -8,21 +8,28 @@
 
 ## The setup
 
-We fine-tuned Llama 3.1 8B Instruct on each of 29 behavioral propensities
-("treatments") — for bipolar propensities, in both directions. Each
-fine-tune was then evaluated against all 29 propensities. The result is two
+We fine-tuned models on each of 24 behavioral propensities
+("treatments") — for bipolar propensities, in both directions. A treatment
+is plain SFT on the propensity's train-split questions paired with that
+pole's reference answers (`expected_plus_response` /
+`expected_minus_response` in the eval YAMLs). Each fine-tune was then
+evaluated against all 24 propensities, on three models: Qwen3.5-9B,
+Qwen3.5-9B-Base and Nemotron-3-Super-120B. The result, per model, is two
 matrices of **logitz** values (signed empirical-logit shifts, z-scored per
 eval):
 
-- `logitz_plus` — 29 plus-pole treatments x 29 evals
-- `logitz_minus` — 14 minus-pole treatments x 29 evals
+- `logitz_plus` — 24 plus-pole treatments x 24 evals
+- `logitz_minus` — 21 minus-pole treatments x 24 evals
+
+You submit one model-agnostic pair of matrices; it is compared with the
+observed matrices of each of the three models.
 
 The diagonal (a treatment scored on its own eval) is the on-target effect
 and is **excluded from scoring**. Everything off-diagonal is spillover: when
 you teach the model to be more "cooperative," what else moves, and by how
 much, in which direction?
 
-We've already had Claude generate nine framings of this prediction (H1–H9).
+We've already had Claude (Opus 5.5, via the website's harness) generate nine framings of this prediction (H1–H9).
 Their specs are public examples on the website, and you may start from one.
 Their predictions are shown on the website only after you submit your own
 entry, and submitting is final, so your numbers aren't anchored to ours.
@@ -57,16 +64,18 @@ The pipeline produces:
 You may iterate. Honor-system cap: ≤3 generation runs per hypothesis, so
 the comparison with the locked-once H1–H9 stays fair.
 
-This is the headline ask. It's apples-to-apples with H1–H9: same prompt,
-same model, same scoring — only your framing varies.
+This is the headline ask. Same prompt and same scoring as H1–H9 — only your
+framing varies. H1–H9 were predicted by Claude Opus 5.5 through the website's
+harness (no code execution); a local Claude Code run can execute code and may
+use a different model, so the website is the strictly apples-to-apples route.
 
 ### Optional tier — hand-tuned matrices
 
 If you'd rather encode cell-level intuitions than write theory, fill the
 two CSV templates directly:
 
-- `templates/PREDICT_transfer_matrix_logitz_plus.csv` (29x29)
-- `templates/PREDICT_transfer_matrix_logitz_minus.csv` (14x29)
+- `inputs/PREDICT_transfer_matrix_logitz_plus.csv` (24x24)
+- `inputs/PREDICT_transfer_matrix_logitz_minus.csv` (21x24)
 
 Row/column order MUST match the template exactly. Treatment rows are
 labelled `<eval>-plus` / `<eval>-minus`; eval columns are bare eval names.
@@ -84,10 +93,11 @@ version of the matrices Claude produces. The diff is informative.
 
 Two leaderboards (same as H1–H9):
 
-- **logitz_plus** — Spearman rho on the 812 off-diagonal cells
-- **logitz_minus** — Spearman rho on the 392 off-diagonal cells
+- **logitz_plus** — Spearman rho on the 552 off-diagonal cells
+- **logitz_minus** — Spearman rho on the 483 off-diagonal cells
 
-Bootstrap 95% CIs reported. The headline score is the mean of the two rhos.
+Bootstrap 95% CIs reported. The headline score is the mean of the two rhos,
+computed against each of the three models' observed matrices.
 
 A theta-rescaled board exists but it's a per-eval affine transform of
 logitz, so it carries little independent information. Don't design for it.
@@ -103,22 +113,24 @@ transforms. Ordering is everything.
 
 ## Scope facts
 
-- **29 propensities**, not 30. Any document mentioning `reward-hacking`
-  is stale — that eval was dropped. Flag it if you see it.
-- **14 bipolar evals** (have both plus and minus poles): agreeableness,
-  certainty, cooperation, effort, harm-elaboration, harm-refusal,
-  honest-humble, neuroticism, power-seeking, resource-acquisition,
-  self-preservation, spending-advice, spitefulness, trust-in-user-intentions.
-- **15 unipolar evals** (plus-only — columns but never minus rows):
-  caring-about-aesthetics, caring-about-animals, caring-about-humans,
-  caring-about-user, claiming-sentience, claiming-superintelligence,
-  ethical-framework-{deontological,utilitarian,virtue-ethics},
-  ev-reasoning, exemplar-reasoning, narcissism, procedural-fidelity,
-  risk-affinity, sycophancy.
+- **24 propensities.** Any document mentioning `caring-about-humans`,
+  `effort`, `exemplar-reasoning`, `harm-elaboration` (replaced by
+  `punitiveness`), `spending-advice`, `trust-in-user-intentions` or
+  `reward-hacking` is stale — those evals are not in this battery. Flag it
+  if you see it.
+- **21 bipolar evals** (have both plus and minus poles): agreeableness,
+  caring-about-aesthetics, caring-about-animals, caring-about-user,
+  certainty, claiming-sentience, claiming-superintelligence, cooperation,
+  ev-reasoning, harm-refusal, honest-humble, narcissism, neuroticism,
+  power-seeking, procedural-fidelity, punitiveness, resource-acquisition,
+  risk-affinity, self-preservation, spitefulness, sycophancy.
+- **3 unipolar evals** (plus-only — columns but never minus rows):
+  ethical-framework-{deontological,utilitarian,virtue-ethics}.
 - **Counter-intuitive direction traps** — confirm sign from the eval
   descriptions / judge prompts, not the eval name. Known traps:
-  `harm-refusal` (higher = LESS refusal), `spending-advice` (higher =
-  spend LESS), `neuroticism` (file order is not score direction).
+  `harm-refusal` (higher = LESS refusal; the plus pole is compliance),
+  `neuroticism` (plus pole = neurotic), `resource-acquisition` (the judge
+  scale is signed, −100..+100).
 
 ## Honesty
 
@@ -132,11 +144,11 @@ transforms. Ordering is everything.
 ## What's in this bundle
 
 ```
-inputs/                          # eval definitions, paraphrases, judge prompts,
-                                 # base-model anchors, judge-overlap cosine matrices
+inputs/                          # eval definitions, paraphrases, per-pole reference
+                                 # answers, judge prompts, judge-overlap cosine
+                                 # matrices, and the two CSV templates
                                  # (the host's H1-H9 specs are on the website;
                                  # their predictions unlock there after you submit)
-templates/                       # the two CSV templates (hand-tuned tier only)
 EXAMPLE_hypothesis.md            # deliberately weak example showing the format
 CHALLENGE.md                     # this file
 ```
