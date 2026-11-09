@@ -16,4 +16,6 @@ cp webapp/static/index.html webapp/static/app.js webapp/static/style.css webapp/
 cp webapp/Dockerfile "$OUT/Dockerfile"
 # Host's H1–H9 specs + frozen predictions, read from the forecast bundle (never committed as a file).
 python3 webapp/build_baselines.py "$OUT/webapp/baselines.json"
+# After freeze: the observed matrices (unsealed), built by webapp/build_results.py.
+[ -f webapp/results.json ] && cp webapp/results.json "$OUT/webapp/"
 echo "staged build context in $OUT"

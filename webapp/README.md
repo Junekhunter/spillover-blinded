@@ -73,3 +73,15 @@ webapp/stage.sh /tmp/spillover-build
 | `ADMIN_TOKEN` | — | `GET /api/admin/export?token=…` returns a zip of all entries and runs |
 | `FREEZE_AT` | unset | ISO timestamp; after it, all editing is locked |
 | `DB_PATH` | `/data/spillover.db` | SQLite on the persistent volume |
+
+## Closing the challenge (freeze)
+
+Set `FREEZE_AT` (ISO time, e.g. `2026-11-09T12:00:00Z`) in the container env. From then on:
+
+- entries, runs and new handles are refused;
+- `results.json` (the observed SFT matrices, built by `build_results.py` from the paper's release repo
+  `propensity-spillover/results/derived`) is unsealed: `/api/results` scores every submitted entry and the
+  host's 14 H1–H9 runs — Spearman ρ over off-diagonal cells pooled over the three models, plus and minus
+  pole separately with bootstrap 95% CIs, score = mean of the two — and returns the mean observed matrices;
+- `/api/results/<handle>` and the Results page show each submitted entry in full;
+- H1–H9's predictions are public.

@@ -3,7 +3,9 @@
 Participants claim a handle (gets a private token), write a six-section spec,
 run the blinded predictor server-side (rate-limited), optionally hand-edit the
 matrices, and submit. Contents stay private until freeze; the public list
-shows handles and titles only.
+shows handles and titles only. At freeze (FREEZE_AT) the observed matrices
+(results.json) are unsealed, every submitted entry and the host's H1–H9 runs are
+scored, and submitted entries become public.
 """
 import asyncio
 import csv
@@ -428,10 +430,11 @@ def examples():
 
 @app.get("/api/examples/predictions")
 def example_predictions(authorization: str = Header(None)):
-    """H1–H9's frozen predictions — only for participants whose own entry is submitted (and hence locked)."""
-    e = auth(authorization)
-    if not e["submitted_at"]:
-        raise HTTPException(403, "Submit your own entry first; H1–H9's predictions unlock after that.")
+    """H1–H9's frozen predictions — for participants whose own entry is submitted, and for everyone after freeze."""
+    if not frozen():
+        e = auth(authorization)
+        if not e["submitted_at"]:
+            raise HTTPException(403, "Submit your own entry first; H1–H9's predictions unlock after that.")
     return {r["id"]: {k: r[k] for k in ("plus_csv", "minus_csv", "method_md", "falsifiers_md")}
             for x in BASELINES["examples"] for r in x["runs"]}
 
@@ -445,6 +448,157 @@ def entries():
     return [{"handle": r["handle"], "title": r["title"], "submitted_at": r["submitted_at"],
              "tier": "hand-edited" if r["matrix_source"] == "hand-edited" else "spec", "n_runs": r["n_runs"]}
             for r in rows]
+
+
+# ---------------------------------------------------------------- results (after freeze)
+
+RESULTS_PATH = os.environ.get("RESULTS_PATH", os.path.join(HERE, "results.json"))
+RESULTS = json.load(open(RESULTS_PATH)) if os.path.exists(RESULTS_PATH) else None
+N_BOOT = 1000
+_results_cache = {}
+
+
+def _parse_csv(text):
+    rows = list(csv.reader(io.StringIO((text or "").strip())))
+    if not rows:
+        return {}
+    cols = rows[0][1:]
+    out = {}
+    for r in rows[1:]:
+        vals = {}
+        for c, v in zip(cols, r[1:]):
+            try:
+                vals[c] = float(v) if v.strip() else None
+            except ValueError:
+                vals[c] = None
+        out[r[0]] = vals
+    return out
+
+
+def _cells(pred, obs):
+    """Paired (predicted, observed) values over off-diagonal cells present in both."""
+    xs, ys = [], []
+    for row, ovals in obs.items():
+        pvals = pred.get(row)
+        if not pvals:
+            continue
+        trait = row.rsplit("-", 1)[0]
+        for col, o in ovals.items():
+            p = pvals.get(col)
+            if col == trait or o is None or p is None:
+                continue
+            xs.append(p)
+            ys.append(o)
+    return xs, ys
+
+
+def _rho(xs, ys):
+    import numpy as np
+    from scipy.stats import spearmanr
+    if len(xs) < 10:
+        return {"rho": None, "lo": None, "hi": None, "n": len(xs)}
+    x, y = np.asarray(xs), np.asarray(ys)
+    rho = spearmanr(x, y)[0]
+    rng = np.random.default_rng(0)
+    bs = [spearmanr(x[i], y[i])[0] for i in (rng.integers(0, len(x), len(x)) for _ in range(N_BOOT))]
+    lo, hi = np.nanpercentile(bs, [2.5, 97.5])
+    f = lambda v: None if v != v else round(float(v), 4)  # noqa: E731
+    return {"rho": f(rho), "lo": f(lo), "hi": f(hi), "n": len(xs)}
+
+
+def score(plus_csv, minus_csv):
+    """Spearman rho between a model-agnostic prediction and the observed SFT spillover, pooled over the three
+    models (plus and minus pole separately; headline score = mean of the two), plus per-model rhos."""
+    pred = {"plus": _parse_csv(plus_csv), "minus": _parse_csv(minus_csv)}
+    out, per_model = {}, {}
+    for pole in ("plus", "minus"):
+        X, Y = [], []
+        for key, obs in RESULTS["observed"].items():
+            xs, ys = _cells(pred[pole], obs[pole])
+            X += xs
+            Y += ys
+            if len(xs) >= 10:
+                from scipy.stats import spearmanr
+                v = spearmanr(xs, ys)[0]
+                per_model.setdefault(key, {})[pole] = None if v != v else round(float(v), 4)
+        out[pole] = _rho(X, Y)
+    vals = [out[p]["rho"] for p in ("plus", "minus") if out[p]["rho"] is not None]
+    out["score"] = round(sum(vals) / len(vals), 4) if vals else None
+    out["per_model"] = per_model
+    return out
+
+
+def _observed_mean():
+    """Mean over the three models of the observed matrices, as CSVs in template order (blank = not observed)."""
+    out = {}
+    for pole, rows in (("plus", agent.PLUS_ROWS), ("minus", agent.MINUS_ROWS)):
+        lines = ["treatment," + ",".join(agent.EVALS)]
+        for r in rows:
+            vals = []
+            for c in agent.EVALS:
+                v = [o[pole][r][c] for o in RESULTS["observed"].values() if r in o[pole] and o[pole][r].get(c) is not None]
+                vals.append(f"{sum(v) / len(v):.3f}" if v else "")
+            lines.append(r + "," + ",".join(vals))
+        out[pole + "_csv"] = "\n".join(lines) + "\n"
+    return out
+
+
+def _require_results():
+    if not frozen():
+        raise HTTPException(403, "Results are published at freeze.")
+    if RESULTS is None:
+        raise HTTPException(503, "Results are not loaded on this server yet.")
+
+
+_board_lock = threading.Lock()
+
+
+def _leaderboard():
+    with _board_lock:
+        if "board" in _results_cache:
+            return _results_cache["board"]
+        board = []
+        for x in BASELINES["examples"]:
+            for r in x["runs"]:
+                board.append({"id": r["id"], "title": x["title"], "kind": "host", "link": f"#/examples/{x['id']}",
+                              **score(r["plus_csv"], r["minus_csv"])})
+        with db() as c:
+            es = c.execute("SELECT * FROM entries WHERE submitted_at IS NOT NULL ORDER BY submitted_at").fetchall()
+        for e in es:
+            board.append({"id": "H" + e["handle"], "title": e["title"], "kind": "participant",
+                          "tier": "hand-edited" if e["matrix_source"] == "hand-edited" else "spec",
+                          "link": f"#/results/{e['handle']}", **score(e["plus_csv"], e["minus_csv"])})
+        board.sort(key=lambda b: (b["score"] is None, -(b["score"] or 0)))
+        _results_cache["board"] = board
+        return board
+
+
+@app.on_event("startup")
+def _warm_results():
+    # Scoring bootstraps every entry; do it once in the background so the first visitor doesn't wait.
+    if frozen() and RESULTS is not None:
+        threading.Thread(target=_leaderboard, daemon=True).start()
+
+
+@app.get("/api/results")
+def results():
+    _require_results()
+    return {"freeze_at": FREEZE_AT, "models": RESULTS["models"], "observed": _observed_mean(),
+            "leaderboard": _leaderboard()}
+
+
+@app.get("/api/results/{handle}")
+def result_entry(handle: str):
+    """A submitted entry in full, public after freeze."""
+    _require_results()
+    with db() as c:
+        e = c.execute("SELECT * FROM entries WHERE handle=? AND submitted_at IS NOT NULL", (handle,)).fetchone()
+    if not e:
+        raise HTTPException(404, "No submitted entry with that handle.")
+    return {"handle": e["handle"], "title": e["title"], "sections": json.loads(e["sections"] or "{}"),
+            "plus_csv": e["plus_csv"], "minus_csv": e["minus_csv"], "matrix_source": e["matrix_source"],
+            "method_md": e["method_md"], "falsifiers_md": e["falsifiers_md"], "disclosure": e["disclosure"],
+            "submitted_at": e["submitted_at"], "score": score(e["plus_csv"], e["minus_csv"]), "models": RESULTS["models"]}
 
 
 @app.get("/api/admin/export")

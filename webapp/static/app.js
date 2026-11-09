@@ -40,6 +40,7 @@ async function api(path, opts = {}) {
 }
 
 function fmtTime(ts) { return ts ? new Date(ts * 1000).toLocaleString() : ""; }
+function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : ""; }
 
 function parseCSV(text) {
   const lines = (text || "").trim().split(/\r?\n/).map((l) => l.split(","));
@@ -83,6 +84,12 @@ async function boot() {
     view().innerHTML = `<div class="callout err" style="margin-top:30px">Could not reach the server: ${esc(e.message)}</div>`;
     return;
   }
+  if (S.meta.frozen) {
+    const b = document.createElement("div");
+    b.className = "closed-banner";
+    b.innerHTML = `<div class="wrap">The challenge closed on ${esc(fmtDate(S.meta.freeze_at))}. <a href="#/results">See the results and the observed matrices →</a></div>`;
+    document.querySelector("header.top").after(b);
+  }
   route();
 }
 
@@ -97,7 +104,7 @@ function route() {
   clearInterval(S.poll);
   window.scrollTo(0, 0);
   if (page !== "home") document.onkeydown = null;
-  ({ home: renderHome, evals: renderEvals, me: renderMe, entries: renderEntries, about: renderAbout, examples: renderExamples }[page] || renderHome)(h);
+  ({ home: renderHome, evals: renderEvals, me: renderMe, entries: renderEntries, about: renderAbout, examples: renderExamples, results: renderResults }[page] || renderHome)(h);
 }
 
 // ------------------------------------------------------------------ home (slide deck)
@@ -148,9 +155,10 @@ function slides() {
         <li><strong>Tweak and submit.</strong> You can hand-edit cells if you like. Submitting is final, and it unlocks the predictions of the paper's nine framings so you can compare.</li>
       </ol>` },
     { cls: "title", html: `
-      <p class="kicker">Ready?</p>
-      <h2 class="big">Start your entry</h2>
-      ${m.frozen ? `<div class="callout warn">The challenge is frozen. Entries can no longer change.</div>` : `
+      <p class="kicker">${m.frozen ? "The challenge is closed" : "Ready?"}</p>
+      <h2 class="big">${m.frozen ? "The results are out" : "Start your entry"}</h2>
+      ${m.frozen ? `<div class="callout">Entries closed on ${esc(fmtDate(m.freeze_at))}. The observed matrices are unsealed and every submission is scored.
+        <p style="margin:12px 0 0"><a class="btn primary" href="#/results">See the leaderboard →</a></p></div>` : `
       <div class="claim">
         <input type="text" id="handle" placeholder="Pick a handle, e.g. persona_drift" maxlength="32" autocomplete="off" aria-label="Handle">
         <button class="btn primary" id="claimBtn">Start</button>
@@ -285,8 +293,10 @@ function renderAbout() {
       <li>Disclose whether literature you cite might be in Claude's training data.</li>
       <li>Leaving a cell blank is better than inventing a number.</li></ul>
     <h2>Timeline</h2>
-    <p>${m.freeze_at ? `Freeze: <strong>${esc(new Date(m.freeze_at).toLocaleString())}</strong>.` : "The freeze date will be announced on the LessWrong post."}
-      At freeze the observed matrices are unsealed, and the leaderboard, including the host's H1–H9, is published.</p>
+    ${m.frozen ? `<p>The challenge closed on <strong>${esc(fmtDate(m.freeze_at))}</strong>. The observed matrices are unsealed and the
+      leaderboard, including the host's H1–H9, is published on the <a href="#/results">Results</a> page.</p>` :
+    `<p>${m.freeze_at ? `Freeze: <strong>${esc(new Date(m.freeze_at).toLocaleString())}</strong>.` : "The freeze date will be announced on the LessWrong post."}
+      At freeze the observed matrices are unsealed, and the leaderboard, including the host's H1–H9, is published.</p>`}
     <h2>Command-line version</h2>
     <p>The original Claude Code pipeline is at <a href="https://github.com/Junekhunter/spillover-blinded">github.com/Junekhunter/spillover-blinded</a>.</p>
   </div>`;
@@ -782,16 +792,14 @@ async function renderExamples(h) {
   view().innerHTML = `<div class="ws-head"><span class="spinner"></span></div>`;
   if (!S.examples) S.examples = await api("/api/examples");
   let me = null, preds = null;
-  if (token()) {
-    try { me = S.me || (await loadMe()); } catch {}
-    if (me?.submitted_at) { try { preds = S.examplePreds || (S.examplePreds = await api("/api/examples/predictions")); } catch {} }
-  }
+  if (token()) { try { me = S.me || (await loadMe()); } catch {} }
+  if (me?.submitted_at || S.meta.frozen) { try { preds = S.examplePreds || (S.examplePreds = await api("/api/examples/predictions")); } catch {} }
   const ex = S.examples.find((x) => x.id === sel);
   view().innerHTML = `
     <div class="ws-head"><h1>The host's framings: H1–H9</h1>
       <p class="muted" style="max-width:740px">These are the host's nine hypotheses, predicted by <code>${esc(S.meta.model)}</code> with the same
-        web harness your runs use. Read them for inspiration, or start your own entry from one. ${preds ? "You've submitted, so their frozen predictions are unlocked below." :
-        "Their <strong>predictions stay locked until you submit your own entry</strong>, so you aren't anchored on their numbers."}</p></div>
+        web harness your runs use. ${S.meta.frozen ? "The challenge is closed, so their predictions are public; their scores are on the <a href=\"#/results\">Results</a> page." : `Read them for inspiration, or start your own entry from one. ${preds ? "You've submitted, so their frozen predictions are unlocked below." :
+        "Their <strong>predictions stay locked until you submit your own entry</strong>, so you aren't anchored on their numbers."}`}</p></div>
     <div class="ex-layout">
       <div class="ex-list">${S.examples.map((x) => `
         <a class="card ex-item ${x.id === sel ? "active" : ""}" href="#/examples/${x.id}">
@@ -870,14 +878,95 @@ function fmtRho(v) { return v == null ? "n/a" : (v >= 0 ? "+" : "") + v.toFixed(
 // ------------------------------------------------------------------ entries
 
 async function renderEntries() {
-  view().innerHTML = `<div class="ws-head"><h1>Entries</h1><p class="muted">Submitted handles. Specs and predictions are revealed at freeze,
-    together with the host's nine H1–H9 framings and the leaderboard.</p></div><div id="el"><span class="spinner"></span></div>`;
+  view().innerHTML = `<div class="ws-head"><h1>Entries</h1><p class="muted">${S.meta.frozen ? `Submitted entries. The challenge is closed: click an entry to read its spec and predictions, or see the <a href="#/results">leaderboard</a>.` :
+    "Submitted handles. Specs and predictions are revealed at freeze, together with the host's nine H1–H9 framings and the leaderboard."}</p></div><div id="el"><span class="spinner"></span></div>`;
   try {
     const rows = await api("/api/entries");
     $("#el").innerHTML = rows.length ? `<div class="card" style="padding:4px 12px;overflow-x:auto"><table class="list"><thead><tr><th>Handle</th><th>Title</th><th>Tier</th><th>Submitted</th></tr></thead>
-      <tbody>${rows.map((r) => `<tr><td class="mono">H${esc(r.handle)}</td><td>${esc(r.title)}</td><td><span class="pill">${esc(r.tier)}</span></td><td class="small muted">${esc(fmtTime(r.submitted_at))}</td></tr>`).join("")}</tbody></table></div>`
+      <tbody>${rows.map((r) => `<tr><td class="mono">H${esc(r.handle)}</td><td>${S.meta.frozen ? `<a href="#/results/${encodeURIComponent(r.handle)}">${esc(r.title)}</a>` : esc(r.title)}</td><td><span class="pill">${esc(r.tier)}</span></td><td class="small muted">${esc(fmtTime(r.submitted_at))}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="muted">No submissions yet. <a href="#/">Be the first.</a></p>`;
   } catch (e) { $("#el").innerHTML = `<div class="callout err">${esc(e.message)}</div>`; }
+}
+
+// ------------------------------------------------------------------ results (after freeze)
+
+function ciText(r, br = false) { return r && r.rho != null ? `${fmtRho(r.rho)}${br ? "<br>" : " "}<span class="small muted" style="white-space:nowrap">[${fmtRho(r.lo)}, ${fmtRho(r.hi)}]</span>` : "n/a"; }
+
+async function renderResults(h) {
+  const handle = decodeURIComponent((h.split("/")[2] || "").split("?")[0]);
+  if (handle) return renderResultEntry(handle);
+  view().innerHTML = `<div class="ws-head"><h1>Results</h1></div><div id="rv"><span class="spinner"></span> <span class="small muted">Scoring every entry…</span></div>`;
+  if (!S.meta.frozen) {
+    $("#rv").innerHTML = `<p class="muted">The leaderboard and the observed matrices are published when the challenge closes.</p>`;
+    return;
+  }
+  let R;
+  try { R = S.results || (S.results = await api("/api/results")); } catch (e) { $("#rv").innerHTML = `<div class="callout err">${esc(e.message)}</div>`; return; }
+  const models = Object.values(R.models).join(", ");
+  $("#rv").innerHTML = `
+    <div class="prose" style="max-width:780px">
+      <p>The challenge closed on ${esc(fmtDate(R.freeze_at))}. Each prediction is compared with the observed SFT spillover of ${esc(models)}:
+        Spearman ρ over all off-diagonal cells of the three models, pooled, separately for the <strong>plus</strong> and <strong>minus</strong> matrix
+        (brackets: bootstrap 95% CI). The <strong>score</strong> is the mean of the two. Only traits whose fine-tune actually moved the trait are scored
+        (on-target shift ≥ 0.2 logit-z), and minus-pole fine-tunes were run for 7 of the 21 two-sided traits, so the minus score covers those 7 rows.
+        Code, data and the paper's analysis: <a href="https://github.com/nielsrolf/propensity-spillover">github.com/nielsrolf/propensity-spillover</a>.</p>
+    </div>
+    <div class="card" style="padding:4px 12px;overflow-x:auto"><table class="list">
+      <thead><tr><th>#</th><th>Entry</th><th>Title</th><th>Score</th><th>Plus ρ</th><th>Minus ρ</th></tr></thead>
+      <tbody>${R.leaderboard.map((b, i) => `<tr class="${b.kind === "participant" ? "participant" : ""}">
+        <td class="small muted">${i + 1}</td>
+        <td class="mono"><a href="${esc(b.link)}">${esc(b.id)}</a> ${b.kind === "host" ? `<span class="pill">host</span>` : `<span class="pill ok">participant</span>`}</td>
+        <td>${esc(b.title)}</td>
+        <td><strong>${fmtRho(b.score)}</strong></td><td>${ciText(b.plus, true)}</td><td>${ciText(b.minus, true)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="small muted">H7a (“anything goes”) and H7b (“intuition”) were each run three times with the same spec; the spread shows run-to-run variance.</p>
+    <h2>The observed matrices</h2>
+    <p class="muted" style="max-width:780px">Observed SFT spillover in logit-z, averaged over the three models. Blank rows: fine-tunes that failed to move
+      their own trait in every model, or minus-pole fine-tunes that weren't run. <label class="small row" style="gap:6px;display:inline-flex"><input type="checkbox" id="obsVals"> show values</label></p>
+    <h3>logitz_plus</h3><div class="matrix-wrap" id="obsP"></div>
+    <h3>logitz_minus</h3><div class="matrix-wrap" id="obsM"></div>`;
+  const draw = () => {
+    const sv = $("#obsVals").checked;
+    matrixTable($("#obsP"), parseCSV(R.observed.plus_csv), { showValues: sv });
+    matrixTable($("#obsM"), parseCSV(R.observed.minus_csv), { showValues: sv });
+  };
+  $("#obsVals").onchange = draw;
+  draw();
+}
+
+async function renderResultEntry(handle) {
+  view().innerHTML = `<div class="ws-head"><span class="spinner"></span></div>`;
+  let e;
+  try { e = await api("/api/results/" + encodeURIComponent(handle)); }
+  catch (err) { view().innerHTML = `<div class="callout err" style="margin-top:30px">${esc(err.message)}</div>`; return; }
+  const sec = S.meta.sections.filter((s) => (e.sections[s.key] || "").trim());
+  const sc = e.score;
+  view().innerHTML = `
+    <div class="ws-head"><p class="small"><a href="#/results">← Results</a></p>
+      <h1>${esc(e.title || "Untitled")}</h1>
+      <p class="muted"><span class="mono">H${esc(e.handle)}</span> · submitted ${esc(fmtTime(e.submitted_at))} ·
+        ${e.matrix_source === "hand-edited" ? "hand-edited matrices" : "matrices generated from the spec"}</p></div>
+    <div class="card">
+      <div class="row"><strong>Score ${fmtRho(sc.score)}</strong><span class="small muted">plus ρ ${ciText(sc.plus)} · minus ρ ${ciText(sc.minus)}</span></div>
+      <p class="small muted" style="margin-bottom:0">Per model: ${Object.entries(sc.per_model).map(([k, v]) => `${esc(e.models[k] || k)} plus ${fmtRho(v.plus)}, minus ${fmtRho(v.minus)}`).join(" · ")}</p>
+    </div>
+    <div class="card">
+      ${sec.map((s) => `<h3>${esc(s.title)}</h3><div class="md">${md(e.sections[s.key])}</div>`).join("")}
+      ${e.disclosure ? `<h3>Disclosure</h3><div class="md">${md(e.disclosure)}</div>` : ""}
+    </div>
+    <div class="card">
+      <div class="row"><strong>Predicted matrices</strong><span class="spacer"></span><label class="small row" style="gap:6px"><input type="checkbox" id="eVals"> show values</label></div>
+      <h3>logitz_plus</h3><div class="matrix-wrap" id="eP"></div>
+      <h3>logitz_minus</h3><div class="matrix-wrap" id="eM"></div>
+      ${e.method_md ? `<details><summary>method.md</summary><div class="md">${md(e.method_md)}</div></details>` : ""}
+      ${e.falsifiers_md ? `<details><summary>falsifiers.md</summary><div class="md">${md(e.falsifiers_md)}</div></details>` : ""}
+    </div>`;
+  const draw = () => {
+    const sv = $("#eVals").checked;
+    if (e.plus_csv) matrixTable($("#eP"), parseCSV(e.plus_csv), { showValues: sv });
+    if (e.minus_csv) matrixTable($("#eM"), parseCSV(e.minus_csv), { showValues: sv });
+  };
+  $("#eVals").onchange = draw;
+  draw();
 }
 
 boot();
