@@ -26,13 +26,13 @@ MODELS = ["qwen35", "qwen35-base", "nemotron35"]
 LABELS = {
     "Hquine_nomech": "Quine (outside entry)",
     "HPersonaAxes": "PersonaAxes (outside entry)",
-    "H1": "H1 · shortcut learning", "H2": "H2 · simplicity bias",
+    "H1": "H1 · Spurious correlation / shortcut learning", "H2": "H2 · simplicity bias",
     "H3": "H3 · causal vs statistical features", "H4": "H4 · subliminal transmission",
-    "H5": "H5 · out-of-context reasoning", "H6": "H6 · low-dim linear geometry",
+    "H5": "H5 · out-of-context reasoning", "H6": "H6 · Low-dimensional linear / log-linear causal geometry",
     "H7a_r1": "H7a · anything goes (run 1)", "H7a_r2": "H7a · anything goes (run 2)",
     "H7a_r3": "H7a · anything goes (run 3)", "H7b_r1": "H7b · intuition (run 1)",
     "H7b_r2": "H7b · intuition (run 2)", "H7b_r3": "H7b · intuition (run 3)",
-    "H8": "H8 · persona theory", "H9": "H9 · human psychology",
+    "H8": "H8 · persona theory", "H9": "H9 · Human psychological findings generalize to LLMs",
 }
 rd = lambda s: pd.read_csv(io.StringIO(s), index_col=0)
 

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 SURFACE, INK, INK2, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8984", "#e6e5e1"
 DOT = "#2a78d6"
 ENTRIES = ["H9", "H8", "HPersonaAxes"]  # top → bottom
-LABEL = {"H9": "H9 · human psychology", "H8": "H8 · persona theory", "HPersonaAxes": "PersonaAxes (outside entry)"}
+LABEL = {"H9": "H9 · Human psychological findings generalize to LLMs", "H8": "H8 · persona theory", "HPersonaAxes": "PersonaAxes (outside entry)"}
 
 df = pd.read_csv("scores.csv", dtype={"entry": str}, keep_default_na=False, na_values={c: [""] for c in ["plus_n", "minus_n"]})
 z = df[df.rule == "zero"].set_index("entry")
