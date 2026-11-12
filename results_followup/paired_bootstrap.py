@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired bootstrap (blanks = 0): resample the same cells for both entries, compare headline scores."""
+"""Paired cluster bootstrap (blanks = 0): resample the same fine-tuning runs for both entries, compare headline scores."""
 import numpy as np
 from scipy.stats import rankdata
 exec(open("score_both_rules.py").read().split("rows = []")[0])
@@ -9,7 +9,8 @@ O = {p: cells(E["H9"], p)[:, 1] for p in ["plus", "minus"]}
 rng = np.random.default_rng(1)
 def sp(a, b):
     return np.corrcoef(rankdata(a), rankdata(b))[0, 1]
-idx = {p: rng.integers(0, len(O[p]), (B, len(O[p]))) for p in O}
+G = {p: runs(cells(E["H9"], p)) for p in O}
+idx = {p: [resample(G[p]) for _ in range(B)] for p in O}  # whole fine-tuning runs, same draws for both entries
 def reps(h):
     return np.mean([[sp(Z[h][p][i], O[p][i]) for i in idx[p]] for p in O], axis=0)
 R = {h: reps(h) for h in Z}

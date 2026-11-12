@@ -26,13 +26,14 @@ MODELS = ["qwen35", "qwen35-base", "nemotron35"]
 LABELS = {
     "Hquine_nomech": "Quine (outside entry)",
     "HPersonaAxes": "PersonaAxes (outside entry)",
-    "H1": "H1 · Spurious correlation / shortcut learning", "H2": "H2 · simplicity bias",
-    "H3": "H3 · causal vs statistical features", "H4": "H4 · subliminal transmission",
-    "H5": "H5 · out-of-context reasoning", "H6": "H6 · Low-dimensional linear / log-linear causal geometry",
+    "H1": "H1 · Spurious correlation / shortcut learning", "H2": "H2 · Simplicity bias",
+    "H3": "H3 · Causal vs. statistical feature learning (the invariant-feature view)",
+    "H4": "H4 · Subliminal trait transmission via shared initialization",
+    "H5": "H5 · Out-of-context reasoning and inductive latent inference", "H6": "H6 · Low-dimensional linear / log-linear causal geometry",
     "H7a_r1": "H7a · anything goes (run 1)", "H7a_r2": "H7a · anything goes (run 2)",
     "H7a_r3": "H7a · anything goes (run 3)", "H7b_r1": "H7b · intuition (run 1)",
     "H7b_r2": "H7b · intuition (run 2)", "H7b_r3": "H7b · intuition (run 3)",
-    "H8": "H8 · persona theory", "H9": "H9 · Human psychological findings generalize to LLMs",
+    "H8": "H8 · Persona Theory of Spillover", "H9": "H9 · Human psychological findings generalize to LLMs",
 }
 rd = lambda s: pd.read_csv(io.StringIO(s), index_col=0)
 
@@ -56,7 +57,9 @@ def observed(model, pole):
 
 
 def cells(pred, pole):
-    """(prediction, observed) for every scored cell, pooled over models."""
+    """(prediction, observed, run id) for every scored cell, pooled over models.
+
+    run id = one fine-tuning run (model × trained pole), the unit the bootstrap resamples."""
     P, rows = pred[pole], []
     for m in MODELS:
         o = observed(m, pole)
@@ -70,13 +73,23 @@ def cells(pred, pole):
                 if c == src or pd.isna(o.at[r, c]):
                     continue
                 v = P.at[r, c] if (r in P.index and c in P.columns) else np.nan
-                rows.append((v, o.at[r, c]))
+                rows.append((v, o.at[r, c], MODELS.index(m) * 1000 + list(o.index).index(r)))
     return np.array(rows, dtype=float)
 
 
+def runs(pv):
+    """Cell indices grouped by fine-tuning run."""
+    return [np.flatnonzero(pv[:, 2] == g) for g in np.unique(pv[:, 2])]
+
+
+def resample(groups):
+    """One cluster-bootstrap draw: whole runs with replacement, so correlated cells move together."""
+    return np.concatenate([groups[j] for j in rng.integers(0, len(groups), len(groups))])
+
+
 def boot(pv):
-    idx = rng.integers(0, len(pv), (B, len(pv)))
-    return np.array([spearmanr(pv[i, 0], pv[i, 1])[0] for i in idx])
+    g = runs(pv)
+    return np.array([spearmanr(pv[i, 0], pv[i, 1])[0] for i in (resample(g) for _ in range(B))])
 
 
 def score(pairs_by_pole):
@@ -96,7 +109,7 @@ rows = []
 for name, pred in load_entries().items():
     raw = {pole: cells(pred, pole) for pole in ["plus", "minus"]}
     dropped = {p: v[~np.isnan(v[:, 0])] for p, v in raw.items()}
-    zero = {p: np.column_stack([np.nan_to_num(v[:, 0]), v[:, 1]]) for p, v in raw.items()}
+    zero = {p: np.column_stack([np.nan_to_num(v[:, 0]), v[:, 1], v[:, 2]]) for p, v in raw.items()}
     for rule, pv in [("dropped", dropped), ("zero", zero)]:
         rows.append({"entry": name, "label": LABELS.get(name, name), "rule": rule, **score(pv)})
 

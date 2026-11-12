@@ -53,7 +53,7 @@ def panel(ax, col, title, labels=True):
         ax.spines[s].set_visible(False)
     ax.set_title(title, loc="left", fontsize=11.5, color=INK, pad=34)
     top = len(order) - 0.25
-    ax.text(0, top, "all cells 0\n(no information)", fontsize=8.5, color=INK2, va="bottom", ha="center", clip_on=False)
+    ax.text(0, top, "wild guessing\n(no information)", fontsize=8.5, color=INK2, va="bottom", ha="center", clip_on=False)
     ax.text(ceil[col], top, f"max possible\n≈ {ceil[col]:.2f}", fontsize=8.5, color=INK2, va="bottom", ha="center", clip_on=False)
 
 
@@ -63,12 +63,12 @@ def legend(fig):
     fig.legend(handles=h, loc="upper left", bbox_to_anchor=(0.01, 0.995), ncol=2, frameon=False, fontsize=9.5)
 
 
-NOTE = ("Spearman ρ vs observed SFT spillover (Qwen3.5-9B, Qwen3.5-9B-Base, Nemotron-3-Super-120B pooled); bars = bootstrap 95% CI.\n"
-        "Only Quine left cells blank, so it is the only entry the rule moves. Grey band = 95% range for an entry with no information.\n"
+NOTE = ("Spearman ρ vs observed SFT spillover (Qwen3.5-9B, Qwen3.5-9B-Base, Nemotron-3-Super-120B pooled); bars = 95% CI, bootstrap over whole fine-tuning runs.\n"
+        "Only Quine left cells blank, so it is the only entry the rule moves. Grey band = wild guessing (2000 random shuffles of H9's predictions).\n"
         "Max possible = the observed matrix averaged over the three models, used as the prediction (one shared matrix can't match all three exactly).")
 
 fig, ax = plt.subplots(figsize=(8.6, 7.4), facecolor=SURFACE)
-panel(ax, "score", "Headline score (mean of plus and minus ρ)")
+panel(ax, "score", "Headline score\n(mean of plus and minus ρ)")
 ax.set_xlabel("Spearman ρ")
 legend(fig)
 fig.text(0.01, 0.005, NOTE, fontsize=7.6, color=INK2, va="bottom")

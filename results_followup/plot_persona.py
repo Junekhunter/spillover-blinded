@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 SURFACE, INK, INK2, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8984", "#e6e5e1"
 DOT = "#2a78d6"
 ENTRIES = ["H9", "H8", "HPersonaAxes"]  # top → bottom
-LABEL = {"H9": "H9 · Human psychological findings generalize to LLMs", "H8": "H8 · persona theory", "HPersonaAxes": "PersonaAxes (outside entry)"}
+LABEL = {"H9": "H9 · Human psychological findings generalize to LLMs", "H8": "H8 · Persona Theory of Spillover", "HPersonaAxes": "PersonaAxes (outside entry)"}
 
 df = pd.read_csv("scores.csv", dtype={"entry": str}, keep_default_na=False, na_values={c: [""] for c in ["plus_n", "minus_n"]})
 z = df[df.rule == "zero"].set_index("entry")
@@ -38,14 +38,14 @@ for ax, (col, title) in zip(axes, [("score", "Headline score"), ("plus", "Plus �
         ax.spines[s].set_visible(False)
     ax.set_title(title, loc="left", fontsize=11, color=INK, pad=26)
     top = len(ENTRIES) - 0.45
-    ax.text(0, top, "no information", fontsize=8.3, color=INK2, ha="center", va="bottom", clip_on=False)
+    ax.text(0, top, "wild guessing", fontsize=8.3, color=INK2, ha="center", va="bottom", clip_on=False)
     ax.text(ceil[col], top, f"max ≈ {ceil[col]:.2f}", fontsize=8.3, color=INK2, ha="center", va="bottom", clip_on=False)
     ax.set_xlabel("Spearman ρ")
 for t in axes[0].get_yticklabels():
     if "outside" in t.get_text():
         t.set_fontweight("bold")
-fig.text(0.01, 0.01, "Bars = bootstrap 95% CI. Grey band = 95% range for an entry with no information. "
+fig.text(0.01, 0.01, "Bars = 95% CI, bootstrap over whole fine-tuning runs. Grey band = wild guessing (2000 random shuffles of H9's predictions).\n"
          "Max = the observed matrix averaged over the three models, used as the prediction.", fontsize=7.8, color=INK2)
-fig.tight_layout(rect=(0, 0.06, 1, 1))
+fig.tight_layout(rect=(0, 0.1, 1, 1))
 fig.savefig("fig_persona.png", dpi=200, facecolor=SURFACE)
 print("wrote fig_persona.png")

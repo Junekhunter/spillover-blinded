@@ -11,11 +11,11 @@ Only Quine left cells blank, so it's the only entry the rule moves.
 
 | File | What it is |
 |---|---|
-| `score_both_rules.py` | Rescores every entry under both rules with 2000-replicate bootstrap CIs. Also computes the no-information band (permutation) and the max possible score (the observed 3-model mean used as the prediction). Writes `scores.csv`. |
+| `score_both_rules.py` | Rescores every entry under both rules with 2000-replicate cluster-bootstrap CIs (whole fine-tuning runs resampled, since cells from one run are correlated). Also computes the no-information band (permutation) and the max possible score (the observed 3-model mean used as the prediction). Writes `scores.csv`. |
 | `plot_both_rules.py` | `fig_score.png` (headline score) and `fig_plus_minus.png` (plus and minus ρ), every entry under both rules |
 | `plot_persona.py` | `fig_persona.png`: H9 vs H8 vs PersonaAxes |
 | `personaaxes_dig.py` | Why PersonaAxes scored low: block-wise ρ, drift, its own falsifiers, biggest misses |
-| `paired_bootstrap.py` | Paired differences between entries (same resampled cells for both): Quine vs PersonaAxes, H9 vs Quine, H8 vs PersonaAxes, H9 vs PersonaAxes |
+| `paired_bootstrap.py` | Paired differences between entries (same resampled fine-tuning runs for both): Quine vs PersonaAxes, H9 vs Quine, H8 vs PersonaAxes, H9 vs PersonaAxes |
 | `leaderboard.md` | The leaderboard table from the post |
 | `H8_method.md` | How the H8 (persona theory) matrix was operationalized |
 | `entries/` | All 16 prediction matrices (H1–H9 runs plus the two outside entries, as submitted) |
